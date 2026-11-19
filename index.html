@@ -1,0 +1,2595 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Canino — Reservas y Estadías</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Plus Jakarta Sans & Nunito -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        display: ['"Nunito"', 'sans-serif'],
+                    },
+                    colors: {
+                        cream: {
+                            50: '#FDFBF7',
+                            100: '#FAF7F2',
+                            200: '#F2ECE1',
+                            300: '#E5DAC7',
+                        },
+                        brown: {
+                            600: '#8C5A32',
+                            700: '#6B4423',
+                            800: '#4E3119',
+                            900: '#362110',
+                        },
+                        terracotta: {
+                            400: '#E49B52',
+                            500: '#D98A3C',
+                            600: '#C07228',
+                        },
+                        sage: {
+                            100: '#E6F4EC',
+                            500: '#3E8E63',
+                            600: '#2E704D',
+                        },
+                        amberstatus: {
+                            100: '#FEF5E3',
+                            500: '#D99B26',
+                            600: '#B47D16',
+                        },
+                        busystatus: {
+                            100: '#FCECE9',
+                            500: '#C84B31',
+                            600: '#A33821',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #FAF7F2;
+            color: #362110;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #F2ECE1;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #C9B79C;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #8C5A32;
+        }
+        .calendar-day {
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .calendar-day:active:not(:disabled) {
+            transform: scale(0.94);
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-terracotta-500 selection:text-white">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+    <!-- Custom Modal Container -->
+    <div id="modal-backdrop" class="fixed inset-0 bg-brown-900/60 backdrop-blur-sm z-40 hidden items-center justify-center p-4 overflow-y-auto">
+        <div id="modal-content" class="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 sm:p-8 relative animate-fade-in border border-cream-300 my-auto">
+            <!-- Dynamic modal content injected here -->
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-screen" class="fixed inset-0 bg-cream-100 z-50 flex flex-col items-center justify-center p-6 text-center">
+        <div class="w-16 h-16 rounded-2xl bg-brown-700 text-white flex items-center justify-center shadow-lg mb-4 animate-bounce">
+            <i data-lucide="paw-print" class="w-8 h-8"></i>
+        </div>
+        <h2 class="font-display font-bold text-xl text-brown-800">Preparando Hotel Canino...</h2>
+        <p class="text-sm text-brown-600 mt-1">Sincronizando disponibilidad y huellitas en tiempo real</p>
+    </div>
+
+    <!-- Main App Root -->
+    <div id="app" class="flex-1 flex flex-col"></div>
+
+    <!-- Firebase & Application Logic -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInAnonymously, 
+            signInWithCustomToken, 
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword,
+            onAuthStateChanged,
+            updatePassword
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            doc, 
+            getDoc, 
+            setDoc, 
+            addDoc, 
+            updateDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            collection 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. INITIALIZATION & FIREBASE SETUP
+        // ==========================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'hotel-canino-app';
+
+        // Credenciales de Firebase del proyecto Hotel Canino
+        const MANUAL_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyAGzqUKhL9aGuOQiirmNCoMZkxH_XHWTAi",
+            authDomain: "hotel-canino-d1761.firebaseapp.com",
+            projectId: "hotel-canino-d1761",
+            storageBucket: "hotel-canino-d1761.firebasestorage.app",
+            messagingSenderId: "742399498953",
+            appId: "1:742399498953:web:5afb87ad4ba36de6790b18"
+        };
+
+        const hasManualConfig = Boolean(MANUAL_FIREBASE_CONFIG.apiKey && MANUAL_FIREBASE_CONFIG.projectId);
+        const firebaseConfig = typeof __firebase_config !== 'undefined'
+            ? JSON.parse(__firebase_config)
+            : (hasManualConfig ? MANUAL_FIREBASE_CONFIG : null);
+
+        let app, auth, db;
+        let isLocalFallback = false;
+
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } else {
+            isLocalFallback = true;
+        }
+
+        // Default Dog Photos (Reliable Unsplash Portraits)
+        const DEFAULT_DOGS_PHOTOS = [
+            "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=400&q=80",
+            "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?auto=format&fit=crop&w=400&q=80",
+            "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=400&q=80",
+            "https://images.unsplash.com/photo-1537151608828-ea2b11777ee8?auto=format&fit=crop&w=400&q=80"
+        ];
+
+        // ==========================================
+        // 2. APPLICATION STATE
+        // ==========================================
+        const today = new Date();
+        function getInitialViewFromLocation() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                if (params.get('view') === 'admin' || window.location.hash === '#admin') {
+                    return 'admin';
+                }
+            } catch (e) {}
+            return 'public';
+        }
+
+        const state = {
+            view: getInitialViewFromLocation(),
+            user: null,
+            isAdminAuthenticated: false,
+            adminTab: 'dashboard',
+            bookingFilter: 'all',
+            
+            // Calendar State
+            currentYear: today.getFullYear(),
+            currentMonth: today.getMonth(),
+            adminYear: today.getFullYear(),
+            adminMonth: today.getMonth(),
+            
+            // Client Selection State
+            selectedCheckIn: null,
+            selectedCheckOut: null,
+            lateCheckout: false,
+            clientCustomRate: '',
+            
+            // Firestore Synced Data
+            settings: {
+                hotelName: "Hotel Canino",
+                maxCapacity: 4,
+                nightlyRate: 0,
+                adaptationRate: 25000,
+                depositPercentage: 50,
+                bankAlias: "HOTEL.CANINO.MP",
+                accountHolder: "Titular Hotel Canino",
+                ownerWhatsapp: "59170000000",
+                ownerEmail: "reservas@hotelcanino.com",
+                emailjsPublicKey: "",
+                emailjsServiceId: "",
+                emailjsTemplateId: "",
+                specialDates: ["12-24", "12-31"],
+                adminPin: "hotelcanino2026"
+            },
+            bookings: [],
+            hostedDogs: [],
+            blockedDates: [],
+            
+            // UI Transient State
+            submitting: false,
+            dataLoaded: false
+        };
+
+        // ==========================================
+        // 3. UTILITY FUNCTIONS (DATES, FORMAT, LOGIC)
+        // ==========================================
+        function toDateStr(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function parseDateStr(str) {
+            if (!str) return null;
+            const [y, m, d] = str.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        }
+
+        function addDays(dateStr, days) {
+            const d = parseDateStr(dateStr);
+            d.setDate(d.getDate() + days);
+            return toDateStr(d);
+        }
+
+        function formatDisplayDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = parseDateStr(dateStr);
+            return d.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' });
+        }
+
+        function formatFullDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = parseDateStr(dateStr);
+            return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+
+        function formatCurrency(amount) {
+            if (!amount || amount <= 0) return '$0';
+            return '$' + Number(amount).toLocaleString('es-AR');
+        }
+
+        const MONTH_NAMES = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ];
+        const DAY_NAMES_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+        function getTodayStr() {
+            return toDateStr(new Date());
+        }
+
+        function isSpecialDate(dateStr) {
+            const mmdd = dateStr.slice(5);
+            return state.settings.specialDates.includes(mmdd) || state.settings.specialDates.includes(dateStr);
+        }
+
+        function getOccupiedNights(checkIn, checkOut, lateCheckout = false) {
+            if (!checkIn || !checkOut) return [];
+            const nights = [];
+            let curr = checkIn;
+            while (curr < checkOut) {
+                nights.push(curr);
+                curr = addDays(curr, 1);
+            }
+            if (lateCheckout) {
+                nights.push(checkOut);
+            }
+            return nights;
+        }
+
+        function calculateStayDetails(checkIn, checkOut, lateCheckout = false, customRateOverride = null) {
+            const nights = getOccupiedNights(checkIn, checkOut, lateCheckout);
+            const totalNights = nights.length;
+            let specialNightsCount = 0;
+            nights.forEach(n => {
+                if (isSpecialDate(n)) specialNightsCount++;
+            });
+            const normalNightsCount = totalNights - specialNightsCount;
+            const parsedCustom = customRateOverride !== null && customRateOverride !== '' ? Number(customRateOverride) : NaN;
+            const rate = !isNaN(parsedCustom) && parsedCustom > 0 ? parsedCustom : (Number(state.settings.nightlyRate) || 0);
+            const specialNightExtraRate = rate;
+            const totalAmount = (totalNights * rate) + (specialNightsCount * specialNightExtraRate);
+            const depositPct = Number(state.settings.depositPercentage) || 50;
+            const depositAmount = Math.round(totalAmount * (depositPct / 100));
+            const balanceAmount = totalAmount - depositAmount;
+
+            return {
+                nights,
+                rateUsed: rate,
+                specialNightExtraRate,
+                totalNights,
+                normalNightsCount,
+                specialNightsCount,
+                totalAmount,
+                depositAmount,
+                balanceAmount
+            };
+        }
+
+        function getDateOccupancy(dateStr) {
+            const isBlocked = state.blockedDates.find(b => b.date === dateStr);
+            
+            const confirmedBookings = state.bookings.filter(b => {
+                if (b.status !== 'confirmada' && b.status !== 'en_estadia') return false;
+                const nights = getOccupiedNights(b.checkIn, b.checkOut, b.lateCheckout);
+                return nights.includes(dateStr);
+            });
+
+            const pendingBookings = state.bookings.filter(b => {
+                if (b.status !== 'pendiente_confirmacion' && b.status !== 'pendiente_sena') return false;
+                const nights = getOccupiedNights(b.checkIn, b.checkOut, b.lateCheckout);
+                return nights.includes(dateStr);
+            });
+
+            const maxCap = Number(state.settings.maxCapacity) || 4;
+            const confirmedCount = confirmedBookings.length;
+            const pendingCount = pendingBookings.length;
+            const isFull = confirmedCount >= maxCap;
+
+            return {
+                isBlocked,
+                confirmedBookings,
+                pendingBookings,
+                confirmedCount,
+                pendingCount,
+                maxCap,
+                isFull,
+                isAvailable: !isBlocked && !isFull
+            };
+        }
+
+        function isRangeAvailable(checkIn, checkOut, lateCheckout = false, ignoreBookingId = null) {
+            const nights = getOccupiedNights(checkIn, checkOut, lateCheckout);
+            if (nights.length === 0) return { valid: false, reason: "El rango de fechas no es válido." };
+            
+            const maxCap = Number(state.settings.maxCapacity) || 4;
+            for (const night of nights) {
+                const blocked = state.blockedDates.find(b => b.date === night);
+                if (blocked) {
+                    return { valid: false, reason: `La fecha ${formatDisplayDate(night)} no está disponible (${blocked.reason || 'Bloqueada'}).` };
+                }
+                const confirmedOnNight = state.bookings.filter(b => {
+                    if (b.id === ignoreBookingId) return false;
+                    if (b.status !== 'confirmada' && b.status !== 'en_estadia') return false;
+                    return getOccupiedNights(b.checkIn, b.checkOut, b.lateCheckout).includes(night);
+                });
+                if (confirmedOnNight.length >= maxCap) {
+                    return { valid: false, reason: `Cupo completo para la noche del ${formatDisplayDate(night)}.` };
+                }
+            }
+            return { valid: true };
+        }
+
+        function getMatchingDogsForRange(checkIn, checkOut, lateCheckout = false) {
+            if (!checkIn || !checkOut) return [];
+            const selectedNights = getOccupiedNights(checkIn, checkOut, lateCheckout);
+            if (selectedNights.length === 0) return [];
+
+            const dogsMap = new Map();
+
+            state.hostedDogs.forEach(dog => {
+                if (dog.status !== 'confirmada' && dog.status !== 'en_estadia') return;
+                const dogNights = getOccupiedNights(dog.checkIn, dog.checkOut, false);
+                const overlaps = selectedNights.some(n => dogNights.includes(n));
+                if (overlaps) {
+                    dogsMap.set(dog.bookingId || dog.id, {
+                        id: dog.id,
+                        name: dog.dogName,
+                        photoUrl: dog.photoUrl || DEFAULT_DOGS_PHOTOS[0]
+                    });
+                }
+            });
+
+            state.bookings.forEach(b => {
+                if (b.status !== 'confirmada' && b.status !== 'en_estadia') return;
+                if (dogsMap.has(b.id)) return;
+                const bNights = getOccupiedNights(b.checkIn, b.checkOut, b.lateCheckout);
+                const overlaps = selectedNights.some(n => bNights.includes(n));
+                if (overlaps) {
+                    dogsMap.set(b.id, {
+                        id: b.id,
+                        name: b.dogName,
+                        photoUrl: b.dogPhotoUrl || DEFAULT_DOGS_PHOTOS[Math.abs(b.dogName.length) % DEFAULT_DOGS_PHOTOS.length]
+                    });
+                }
+            });
+
+            return Array.from(dogsMap.values());
+        }
+
+        function compressImageToDataURL(file, maxWidth = 500, quality = 0.78) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width;
+                        let height = img.height;
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', quality));
+                    };
+                    img.onerror = reject;
+                    img.src = e.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // ==========================================
+        // 4. UI HELPERS (TOASTS, MODALS, CLIPBOARD)
+        // ==========================================
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgColors = {
+                success: 'bg-sage-600 text-white',
+                error: 'bg-busystatus-600 text-white',
+                warning: 'bg-amberstatus-600 text-white',
+                info: 'bg-brown-800 text-white'
+            };
+            const icons = {
+                success: 'check-circle-2',
+                error: 'alert-circle',
+                warning: 'alert-triangle',
+                info: 'info'
+            };
+            toast.className = `pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl text-sm font-medium animate-fade-in ${bgColors[type] || bgColors.info}`;
+            toast.innerHTML = `
+                <i data-lucide="${icons[type] || 'info'}" class="w-5 h-5 shrink-0"></i>
+                <span class="flex-1">${message}</span>
+            `;
+            container.appendChild(toast);
+            lucide.createIcons({ root: toast });
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(-8px)';
+                toast.style.transition = 'all 0.25s ease';
+                setTimeout(() => toast.remove(), 250);
+            }, 3500);
+        }
+
+        function openModal(htmlContent) {
+            const backdrop = document.getElementById('modal-backdrop');
+            const content = document.getElementById('modal-content');
+            content.innerHTML = htmlContent;
+            backdrop.classList.remove('hidden');
+            backdrop.classList.add('flex');
+            lucide.createIcons({ root: content });
+        }
+
+        function closeModal() {
+            const backdrop = document.getElementById('modal-backdrop');
+            backdrop.classList.add('hidden');
+            backdrop.classList.remove('flex');
+        }
+        window.closeModal = closeModal;
+
+        document.getElementById('modal-backdrop').addEventListener('click', (e) => {
+            if (e.target.id === 'modal-backdrop') closeModal();
+        });
+
+        function copyToClipboard(text, successMsg = "Copiado al portapapeles") {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showToast(successMsg, 'success');
+            } catch (err) {
+                showToast("No se pudo copiar automáticamente", "error");
+            }
+            document.body.removeChild(textarea);
+        }
+
+        // ==========================================
+        // 5. FIRESTORE DATA LAYER & SEEDING
+        // ==========================================
+        function getSettingsRef() {
+            return doc(db, 'artifacts', appId, 'public', 'data', 'config', 'settings');
+        }
+        function getBookingsCol() {
+            return collection(db, 'artifacts', appId, 'public', 'data', 'bookings');
+        }
+        function getHostedDogsCol() {
+            return collection(db, 'artifacts', appId, 'public', 'data', 'hostedDogs');
+        }
+        function getBlockedDatesCol() {
+            return collection(db, 'artifacts', appId, 'public', 'data', 'blockedDates');
+        }
+
+        async function seedInitialDataIfNeeded() {
+            if (isLocalFallback) return;
+            try {
+                const settingsSnap = await getDoc(getSettingsRef());
+                if (!settingsSnap.exists()) {
+                    await setDoc(getSettingsRef(), state.settings);
+
+                    const d1In = addDays(getTodayStr(), 3);
+                    const d1Out = addDays(getTodayStr(), 7);
+                    const d2In = addDays(getTodayStr(), 4);
+                    const d2Out = addDays(getTodayStr(), 9);
+                    const d3In = addDays(getTodayStr(), 12);
+                    const d3Out = addDays(getTodayStr(), 15);
+
+                    const calc1 = calculateStayDetails(d1In, d1Out, false);
+                    const b1 = await addDoc(getBookingsCol(), {
+                        ownerName: "Camila Fernández",
+                        dogName: "Milo",
+                        dogPhotoUrl: DEFAULT_DOGS_PHOTOS[0],
+                        whatsapp: "5491145678901",
+                        checkIn: d1In,
+                        checkOut: d1Out,
+                        lateCheckout: false,
+                        notes: "Come 2 veces al día (8hs y 20hs). Le encanta jugar con pelotitas.",
+                        privateNotes: "Súper sociable y tranquilo. Ya hizo adaptación.",
+                        status: "confirmada",
+                        nightsCount: calc1.totalNights,
+                        specialNightsCount: calc1.specialNightsCount,
+                        totalAmount: calc1.totalAmount,
+                        depositAmount: calc1.depositAmount,
+                        depositPaid: true,
+                        balancePaid: false,
+                        createdAt: new Date().toISOString()
+                    });
+
+                    await addDoc(getHostedDogsCol(), {
+                        dogName: "Milo",
+                        photoUrl: DEFAULT_DOGS_PHOTOS[0],
+                        checkIn: d1In,
+                        checkOut: d1Out,
+                        status: "confirmada",
+                        bookingId: b1.id
+                    });
+
+                    const calc2 = calculateStayDetails(d2In, d2Out, false);
+                    const b2 = await addDoc(getBookingsCol(), {
+                        ownerName: "Martín Gómez",
+                        dogName: "Luna",
+                        dogPhotoUrl: DEFAULT_DOGS_PHOTOS[1],
+                        whatsapp: "5491198765432",
+                        checkIn: d2In,
+                        checkOut: d2Out,
+                        lateCheckout: false,
+                        notes: "Duerme en su mantita. Muy cariñosa con otros perritos.",
+                        privateNotes: "Vacunas al día verificadas.",
+                        status: "confirmada",
+                        nightsCount: calc2.totalNights,
+                        specialNightsCount: calc2.specialNightsCount,
+                        totalAmount: calc2.totalAmount,
+                        depositAmount: calc2.depositAmount,
+                        depositPaid: true,
+                        balancePaid: false,
+                        createdAt: new Date().toISOString()
+                    });
+
+                    await addDoc(getHostedDogsCol(), {
+                        dogName: "Luna",
+                        photoUrl: DEFAULT_DOGS_PHOTOS[1],
+                        checkIn: d2In,
+                        checkOut: d2Out,
+                        status: "confirmada",
+                        bookingId: b2.id
+                    });
+
+                    const calc3 = calculateStayDetails(d3In, d3Out, false);
+                    await addDoc(getBookingsCol(), {
+                        ownerName: "Sofía Rojas",
+                        dogName: "Toby",
+                        dogPhotoUrl: DEFAULT_DOGS_PHOTOS[2],
+                        whatsapp: "5491133445566",
+                        checkIn: d3In,
+                        checkOut: d3Out,
+                        lateCheckout: false,
+                        notes: "Primera vez que se queda. Ya hicimos la jornada de adaptación.",
+                        privateNotes: "Falta confirmar transferencia de seña.",
+                        status: "pendiente_confirmacion",
+                        nightsCount: calc3.totalNights,
+                        specialNightsCount: calc3.specialNightsCount,
+                        totalAmount: calc3.totalAmount,
+                        depositAmount: calc3.depositAmount,
+                        depositPaid: false,
+                        balancePaid: false,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+            } catch (err) {
+                console.error("Error seeding data:", err);
+            }
+        }
+
+        function setupRealtimeListeners() {
+            if (isLocalFallback) {
+                state.dataLoaded = true;
+                document.getElementById('loading-screen').classList.add('hidden');
+                render();
+                return;
+            }
+
+            let loadedCount = 0;
+            const checkAllLoaded = () => {
+                loadedCount++;
+                if (loadedCount >= 4 && !state.dataLoaded) {
+                    state.dataLoaded = true;
+                    document.getElementById('loading-screen').classList.add('hidden');
+                }
+                render();
+            };
+
+            onSnapshot(getSettingsRef(), (docSnap) => {
+                if (docSnap.exists()) {
+                    state.settings = { ...state.settings, ...docSnap.data() };
+                }
+                checkAllLoaded();
+            }, (err) => {
+                console.error("Settings snapshot error:", err);
+                checkAllLoaded();
+            });
+
+            onSnapshot(getBookingsCol(), (snapshot) => {
+                const list = [];
+                snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
+                list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                state.bookings = list;
+                checkAllLoaded();
+            }, (err) => {
+                console.error("Bookings snapshot error:", err);
+                checkAllLoaded();
+            });
+
+            onSnapshot(getHostedDogsCol(), (snapshot) => {
+                const list = [];
+                snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
+                state.hostedDogs = list;
+                checkAllLoaded();
+            }, (err) => {
+                console.error("HostedDogs snapshot error:", err);
+                checkAllLoaded();
+            });
+
+            onSnapshot(getBlockedDatesCol(), (snapshot) => {
+                const list = [];
+                snapshot.forEach(d => list.push({ id: d.id, ...d.data() }));
+                state.blockedDates = list;
+                checkAllLoaded();
+            }, (err) => {
+                console.error("BlockedDates snapshot error:", err);
+                checkAllLoaded();
+            });
+        }
+
+        async function initApp() {
+            if (isLocalFallback) {
+                setupRealtimeListeners();
+                return;
+            }
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                state.user = auth.currentUser;
+                await seedInitialDataIfNeeded();
+                setupRealtimeListeners();
+            } catch (error) {
+                console.error("Auth initialization error:", error);
+                document.getElementById('loading-screen').classList.add('hidden');
+                showToast("Error conectando con la base de datos", "error");
+            }
+        }
+
+        // ==========================================
+        // 6. VIEW SWITCHING & NAVIGATION
+        // ==========================================
+        window.switchView = function(targetView) {
+            state.view = targetView;
+            try {
+                if (window.location.protocol !== 'blob:') {
+                    const url = new URL(window.location.href);
+                    if (targetView === 'admin') {
+                        url.searchParams.set('view', 'admin');
+                    } else {
+                        url.searchParams.delete('view');
+                    }
+                    window.history.pushState({}, '', url);
+                } else {
+                    window.location.hash = targetView === 'admin' ? '#admin' : '';
+                }
+            } catch (e) {}
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            render();
+        };
+
+        window.sharePublicLink = function() {
+            let shareUrl = window.location.href;
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('view');
+                url.hash = '';
+                shareUrl = url.toString();
+            } catch (e) {}
+            copyToClipboard(shareUrl, "¡Enlace de reservas copiado! Listo para pegar en WhatsApp 🐶");
+        };
+
+        // ==========================================
+        // 7. PUBLIC VIEW: CALENDAR & INTERACTIONS
+        // ==========================================
+        window.changePublicMonth = function(delta) {
+            let m = state.currentMonth + delta;
+            let y = state.currentYear;
+            if (m < 0) { m = 11; y--; }
+            if (m > 11) { m = 0; y++; }
+            const now = new Date();
+            if (y < now.getFullYear() || (y === now.getFullYear() && m < now.getMonth())) {
+                return;
+            }
+            state.currentMonth = m;
+            state.currentYear = y;
+            render();
+        };
+
+        window.handlePublicDateClick = function(dateStr) {
+            const todayStr = getTodayStr();
+            if (dateStr < todayStr) return;
+
+            const occ = getDateOccupancy(dateStr);
+
+            if (!state.selectedCheckIn || (state.selectedCheckIn && state.selectedCheckOut)) {
+                if (!occ.isAvailable) {
+                    showToast("Esa fecha de ingreso no tiene cupo disponible.", "warning");
+                    return;
+                }
+                state.selectedCheckIn = dateStr;
+                state.selectedCheckOut = null;
+                render();
+                return;
+            }
+
+            if (dateStr === state.selectedCheckIn) {
+                state.selectedCheckIn = null;
+                state.selectedCheckOut = null;
+                render();
+                return;
+            }
+
+            if (dateStr < state.selectedCheckIn) {
+                if (!occ.isAvailable) {
+                    showToast("Esa fecha de ingreso no tiene cupo disponible.", "warning");
+                    return;
+                }
+                state.selectedCheckIn = dateStr;
+                state.selectedCheckOut = null;
+                render();
+                return;
+            }
+
+            const check = isRangeAvailable(state.selectedCheckIn, dateStr, state.lateCheckout);
+            if (!check.valid) {
+                showToast(check.reason, "error");
+                return;
+            }
+
+            state.selectedCheckOut = dateStr;
+            render();
+
+            if (window.innerWidth < 1024) {
+                setTimeout(() => {
+                    const dogsEl = document.getElementById('matching-dogs-section');
+                    if (dogsEl) dogsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 150);
+            }
+        };
+
+        window.toggleLateCheckout = function(checked) {
+            if (state.selectedCheckIn && state.selectedCheckOut) {
+                const check = isRangeAvailable(state.selectedCheckIn, state.selectedCheckOut, checked);
+                if (!check.valid) {
+                    showToast("No hay cupo disponible para extender el retiro después de las 13:00 hs.", "error");
+                    render();
+                    return;
+                }
+            }
+            state.lateCheckout = checked;
+            render();
+        };
+
+        window.clearSelection = function() {
+            state.selectedCheckIn = null;
+            state.selectedCheckOut = null;
+            state.lateCheckout = false;
+            render();
+        };
+
+        window.updateClientCustomRate = function(val) {
+            state.clientCustomRate = val;
+            if (!state.selectedCheckIn || !state.selectedCheckOut) return;
+            const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
+            const hasRate = details.rateUsed > 0;
+            const calcBox = document.getElementById('live-price-summary');
+            if (calcBox) {
+                calcBox.innerHTML = hasRate ? `
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
+                        <div>
+                            <span class="text-cream-300">Total estadía (${details.totalNights} ${details.totalNights === 1 ? 'noche' : 'noches'}):</span>
+                            <span class="font-bold text-base ml-1 text-white">${formatCurrency(details.totalAmount)}</span>
+                        </div>
+                        <div class="bg-terracotta-500/20 border border-terracotta-400/40 px-3.5 py-1.5 rounded-xl">
+                            <span class="text-cream-200">Seña a transferir (${state.settings.depositPercentage}%):</span>
+                            <span class="font-extrabold text-terracotta-400 text-base ml-1">${formatCurrency(details.depositAmount)}</span>
+                        </div>
+                    </div>
+                ` : `
+                    <p class="text-xs text-cream-300">
+                        Ingresá arriba el precio por noche que te pasamos por WhatsApp para calcular el total y el ${state.settings.depositPercentage}% de seña.
+                    </p>
+                `;
+            }
+        };
+
+        function buildOwnerNotificationPayload(booking, details) {
+            const hasRate = details.rateUsed > 0;
+            const specialNightsCount = details.specialNightsCount ?? 0;
+            const rawMessage =
+                `¡Hola ${state.settings.hotelName}! 🐶 Acabo de solicitar una reserva:\n` +
+                `• Perrito: *${booking.dogName}*\n` +
+                `• Tutor: ${booking.ownerName}\n` +
+                (booking.whatsapp ? `• WhatsApp cliente: ${booking.whatsapp}\n` : '') +
+                `• Ingreso: ${formatFullDate(booking.checkIn)} (desde 12:00 hs)\n` +
+                `• Salida: ${formatFullDate(booking.checkOut)} ${booking.lateCheckout ? '(después de 13:00 hs)' : '(hasta 13:00 hs)'}\n` +
+                `• Noches: ${details.totalNights}\n` +
+                `• Noches especiales: ${specialNightsCount}\n` +
+                (hasRate
+                    ? `• Tarifa por noche acordada: ${formatCurrency(details.rateUsed)}\n` +
+                      `• Total estadía: ${formatCurrency(details.totalAmount)}\n` +
+                      `• Seña (${state.settings.depositPercentage}%): ${formatCurrency(details.depositAmount)}\n`
+                    : '') +
+                (booking.notes ? `• Observaciones: ${booking.notes}\n` : '') +
+                `Quedo atento/a para enviar el carnet de vacunación y comprobante de seña. 💛`;
+
+            const cleanOwnerPhone = (state.settings.ownerWhatsapp || '').replace(/\D/g, '');
+            const waUrl = `https://wa.me/${cleanOwnerPhone}?text=${encodeURIComponent(rawMessage)}`;
+            const plainTextMessage = rawMessage.replace(/\*/g, '');
+            const mailSubject = encodeURIComponent(`Nueva solicitud de reserva: ${booking.dogName} (${formatFullDate(booking.checkIn)})`);
+            const mailBody = encodeURIComponent(plainTextMessage);
+            const mailtoUrl = `mailto:${state.settings.ownerEmail || ''}?subject=${mailSubject}&body=${mailBody}`;
+
+            return { waUrl, mailtoUrl, plainTextMessage, hasRate };
+        }
+
+        async function sendBackgroundEmailIfConfigured(booking, details, plainTextMessage) {
+            const { emailjsPublicKey, emailjsServiceId, emailjsTemplateId, ownerEmail } = state.settings;
+            if (!emailjsPublicKey || !emailjsServiceId || !emailjsTemplateId || !ownerEmail) {
+                return false;
+            }
+            try {
+                const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        lib_version: '4.4.1',
+                        user_id: emailjsPublicKey,
+                        service_id: emailjsServiceId,
+                        template_id: emailjsTemplateId,
+                        template_params: {
+                            to_email: ownerEmail,
+                            dog_name: booking.dogName,
+                            owner_name: booking.ownerName,
+                            client_whatsapp: booking.whatsapp || 'No informado',
+                            check_in: formatFullDate(booking.checkIn),
+                            check_out: formatFullDate(booking.checkOut),
+                            nights_count: details.totalNights,
+                            special_nights_count: details.specialNightsCount ?? 0,
+                            total_amount: formatCurrency(details.totalAmount),
+                            deposit_amount: formatCurrency(details.depositAmount),
+                            notes: booking.notes || 'Sin observaciones',
+                            message: plainTextMessage
+                        }
+                    })
+                });
+                return res.ok;
+            } catch (err) {
+                console.error("Error enviando correo con EmailJS:", err);
+                return false;
+            }
+        }
+
+        window.submitBookingRequest = async function(e) {
+            e.preventDefault();
+            if (state.submitting) return;
+
+            if (!state.selectedCheckIn || !state.selectedCheckOut) {
+                showToast("Por favor seleccioná las fechas de ingreso y salida en el calendario.", "warning");
+                return;
+            }
+
+            const ownerName = document.getElementById('req-owner-name').value.trim();
+            const dogName = document.getElementById('req-dog-name').value.trim();
+            const whatsapp = document.getElementById('req-whatsapp').value.trim();
+            const notes = document.getElementById('req-notes').value.trim();
+            const accepted = document.getElementById('req-terms').checked;
+
+            if (!ownerName || !dogName) {
+                showToast("Completá tu nombre y el nombre de tu perrito.", "warning");
+                return;
+            }
+            if (!accepted) {
+                showToast("Debés aceptar las condiciones del servicio para continuar.", "warning");
+                return;
+            }
+
+            const check = isRangeAvailable(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout);
+            if (!check.valid) {
+                showToast(check.reason, "error");
+                return;
+            }
+
+            state.submitting = true;
+            render();
+
+            try {
+                const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
+                const newBooking = {
+                    ownerName,
+                    dogName,
+                    dogPhotoUrl: "",
+                    whatsapp,
+                    checkIn: state.selectedCheckIn,
+                    checkOut: state.selectedCheckOut,
+                    lateCheckout: state.lateCheckout,
+                    notes,
+                    privateNotes: "",
+                    status: "pendiente_confirmacion",
+                    nightlyRateApplied: details.rateUsed,
+                    nightsCount: details.totalNights,
+                    specialNightsCount: details.specialNightsCount,
+                    totalAmount: details.totalAmount,
+                    depositAmount: details.depositAmount,
+                    depositPaid: false,
+                    balancePaid: false,
+                    createdAt: new Date().toISOString()
+                };
+
+                if (!isLocalFallback) {
+                    await addDoc(getBookingsCol(), newBooking);
+                } else {
+                    state.bookings.unshift({ id: 'local-' + Date.now(), ...newBooking });
+                }
+
+                const notif = buildOwnerNotificationPayload(newBooking, details);
+                const emailSent = await sendBackgroundEmailIfConfigured(newBooking, details, notif.plainTextMessage);
+
+                if (state.settings.ownerWhatsapp) {
+                    window.open(notif.waUrl, '_blank', 'noopener,noreferrer');
+                }
+
+                if (emailSent) {
+                    showToast("¡Notificación enviada a tu correo electrónico!", "success");
+                }
+
+                showBookingConfirmationModal(newBooking, details, notif, emailSent);
+                state.clientCustomRate = '';
+            } catch (err) {
+                console.error("Error creating booking:", err);
+                showToast("Ocurrió un error al enviar tu solicitud. Intentá nuevamente.", "error");
+            } finally {
+                state.submitting = false;
+                render();
+            }
+        };
+
+        function showBookingConfirmationModal(booking, details, notif, emailSent = false) {
+            const hasRate = details.rateUsed > 0;
+            const specialExtraRate = details.specialNightExtraRate ?? details.rateUsed;
+
+            openModal(`
+                <div class="text-center">
+                    <div class="w-16 h-16 rounded-full bg-amberstatus-100 text-amberstatus-600 flex items-center justify-center mx-auto mb-4">
+                        <i data-lucide="clock" class="w-8 h-8"></i>
+                    </div>
+                    <span class="inline-block px-3 py-1 rounded-full bg-amberstatus-100 text-amberstatus-600 text-xs font-bold uppercase tracking-wider mb-2">
+                        Pendiente de Confirmación
+                    </span>
+                    <h3 class="font-display font-extrabold text-2xl text-brown-900">¡Solicitud registrada, ${booking.ownerName}! 🐶</h3>
+                    <p class="text-sm text-brown-600 mt-2">
+                        Registramos el pedido para <strong>${booking.dogName}</strong>. Recordá que <strong>las fechas solo quedan confirmadas cuando recibimos tu notificación y la seña</strong>.
+                    </p>
+                </div>
+
+                <div class="mt-5 bg-cream-100 rounded-2xl p-4 border border-cream-300 space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-brown-600">Check-in:</span>
+                        <span class="font-bold text-brown-900">${formatFullDate(booking.checkIn)} (12:00 hs)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-brown-600">Check-out:</span>
+                        <span class="font-bold text-brown-900">${formatFullDate(booking.checkOut)} ${booking.lateCheckout ? '(Post 13:00 hs)' : '(Hasta 13:00 hs)'}</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-brown-600">Estadía total:</span>
+                        <span class="font-bold text-brown-900">${details.totalNights} ${details.totalNights === 1 ? 'noche' : 'noches'}</span>
+                    </div>
+                    ${hasRate ? `
+                        <div class="flex justify-between">
+                            <span class="text-brown-600">Tarifa por noche:</span>
+                            <span class="font-bold text-brown-900">${formatCurrency(details.rateUsed)}</span>
+                        </div>
+                    ` : ''}
+                    ${details.specialNightsCount > 0 ? `
+                        <div class="flex justify-between">
+                            <span class="text-brown-600">Noches especiales:</span>
+                            <span class="font-bold text-brown-900">${details.specialNightsCount}</span>
+                        </div>
+                        ${hasRate ? `
+                            <div class="flex justify-between">
+                                <span class="text-brown-600">Tarifa por noche especial:</span>
+                                <span class="font-bold text-brown-900">${formatCurrency(specialExtraRate)}</span>
+                            </div>
+                        ` : ''}
+                    ` : ''}
+                    ${hasRate ? `
+                        <div class="border-t border-cream-300 pt-2 flex justify-between">
+                            <span class="text-brown-600">Importe total estadía:</span>
+                            <span class="font-bold text-brown-900">${formatCurrency(details.totalAmount)}</span>
+                        </div>
+                        <div class="flex justify-between text-base text-terracotta-600 font-extrabold">
+                            <span>Seña para reserva (${state.settings.depositPercentage}%):</span>
+                            <span>${formatCurrency(details.depositAmount)}</span>
+                        </div>
+                    ` : `
+                        <div class="border-t border-cream-300 pt-2 text-xs text-brown-600 italic">
+                            El importe de la seña (${state.settings.depositPercentage}%) corresponde al presupuesto pasado por WhatsApp.
+                        </div>
+                    `}
+                </div>
+
+                <div class="mt-4 bg-brown-800 text-white rounded-2xl p-4">
+                    <p class="text-xs text-cream-300 uppercase tracking-wider font-semibold">Datos para transferir la seña (${state.settings.depositPercentage}%)</p>
+                    <p class="text-xs text-cream-200 mt-0.5">Titular: ${state.settings.accountHolder}</p>
+                    <div class="mt-2.5 flex items-center justify-between gap-2 bg-brown-900/70 px-3.5 py-2.5 rounded-xl border border-brown-600">
+                        <span class="font-mono font-bold text-base tracking-wide text-terracotta-400 select-all">${state.settings.bankAlias}</span>
+                        <button onclick="copyToClipboard('${state.settings.bankAlias}', '¡Alias copiado!')" class="flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            Copiar alias
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mt-5 space-y-2.5">
+                    <a href="${notif.waUrl}" target="_blank" rel="noopener noreferrer" class="w-full bg-sage-500 hover:bg-sage-600 text-white font-bold py-3.5 px-4 rounded-2xl shadow-md flex items-center justify-center gap-2 transition text-sm">
+                        <i data-lucide="message-circle" class="w-5 h-5"></i>
+                        Notificar solicitud por WhatsApp
+                    </a>
+                    ${state.settings.ownerEmail ? `
+                        <a href="${notif.mailtoUrl}" class="w-full bg-brown-700 hover:bg-brown-800 text-white font-bold py-3 px-4 rounded-2xl flex items-center justify-center gap-2 transition text-xs sm:text-sm">
+                            <i data-lucide="mail" class="w-4 h-4"></i>
+                            ${emailSent ? 'Correo enviado (abrir copia en mi app)' : 'Enviar notificación por Correo Electrónico'}
+                        </a>
+                    ` : ''}
+                    <button onclick="closeModal()" class="w-full bg-cream-200 hover:bg-cream-300 text-brown-800 font-bold py-3 px-5 rounded-2xl transition text-xs sm:text-sm">
+                        Cerrar resumen
+                    </button>
+                </div>
+            `);
+        }
+
+        // ==========================================
+        // 8. RENDER PUBLIC VIEW
+        // ==========================================
+        function renderPublicCalendar() {
+            const year = state.currentYear;
+            const month = state.currentMonth;
+            const firstDayOfMonth = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const todayStr = getTodayStr();
+            const now = new Date();
+            const canGoPrev = year > now.getFullYear() || (year === now.getFullYear() && month > now.getMonth());
+
+            const selectedRangeNights = (state.selectedCheckIn && state.selectedCheckOut)
+                ? getOccupiedNights(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout)
+                : [];
+
+            let cellsHtml = '';
+            for (let i = 0; i < firstDayOfMonth; i++) {
+                cellsHtml += `<div class="aspect-square"></div>`;
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const isPast = dateStr < todayStr;
+                const occ = getDateOccupancy(dateStr);
+                const special = isSpecialDate(dateStr);
+
+                const isStart = state.selectedCheckIn === dateStr;
+                const isEnd = state.selectedCheckOut === dateStr;
+                const isInRange = selectedRangeNights.includes(dateStr) || (state.selectedCheckIn && state.selectedCheckOut && dateStr >= state.selectedCheckIn && dateStr <= state.selectedCheckOut);
+
+                let btnClasses = "calendar-day relative aspect-square rounded-2xl flex flex-col items-center justify-center text-sm font-bold border ";
+                let statusDot = "";
+
+                if (isPast) {
+                    btnClasses += "bg-cream-100/60 text-brown-600/35 border-transparent cursor-not-allowed";
+                } else if (isStart || isEnd) {
+                    btnClasses += "bg-brown-700 text-white border-brown-800 shadow-md ring-2 ring-terracotta-400 z-10";
+                } else if (isInRange) {
+                    btnClasses += "bg-terracotta-400/25 text-brown-900 border-terracotta-400";
+                } else if (occ.isBlocked || occ.isFull) {
+                    btnClasses += "bg-busystatus-100 text-busystatus-600 border-busystatus-500/30 cursor-not-allowed line-through opacity-80";
+                    statusDot = `<span class="w-1.5 h-1.5 rounded-full bg-busystatus-500 mt-0.5"></span>`;
+                } else if (occ.pendingCount > 0) {
+                    btnClasses += "bg-amberstatus-100/80 text-brown-900 border-amberstatus-500/40 hover:border-brown-700 cursor-pointer";
+                    statusDot = `<span class="w-1.5 h-1.5 rounded-full bg-amberstatus-500 mt-0.5"></span>`;
+                } else if (occ.confirmedCount > 0) {
+                    btnClasses += "bg-sage-100/70 text-brown-900 border-sage-500/40 hover:border-brown-700 cursor-pointer";
+                    statusDot = `<span class="flex gap-0.5 mt-0.5"><span class="w-1.5 h-1.5 rounded-full bg-sage-500"></span></span>`;
+                } else {
+                    btnClasses += "bg-white text-brown-800 border-cream-300 hover:border-terracotta-500 hover:bg-cream-50 cursor-pointer";
+                    statusDot = `<span class="w-1.5 h-1.5 rounded-full bg-sage-500/60 mt-0.5"></span>`;
+                }
+
+                cellsHtml += `
+                    <button 
+                        type="button"
+                        ${isPast ? 'disabled' : ''}
+                        onclick="handlePublicDateClick('${dateStr}')"
+                        class="${btnClasses}"
+                        title="${occ.isBlocked ? 'Fecha no disponible' : occ.isFull ? 'Cupo completo' : special ? 'Fecha especial (Tarifa doble)' : 'Disponible'}"
+                    >
+                        <span>${day}</span>
+                        ${special && !isPast ? `<span class="absolute top-1 right-1.5 text-[9px] text-terracotta-600 font-extrabold">2x</span>` : ''}
+                        ${!isPast && !isStart && !isEnd ? statusDot : ''}
+                        ${isStart ? `<span class="text-[9px] uppercase tracking-tighter leading-none mt-0.5 text-terracotta-400">In</span>` : ''}
+                        ${isEnd ? `<span class="text-[9px] uppercase tracking-tighter leading-none mt-0.5 text-terracotta-400">Out</span>` : ''}
+                    </button>
+                `;
+            }
+
+            return `
+                <div class="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-cream-300">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="font-display font-extrabold text-xl text-brown-900 flex items-center gap-2">
+                                <i data-lucide="calendar-days" class="w-5 h-5 text-terracotta-500"></i>
+                                Disponibilidad
+                            </h2>
+                            <p class="text-xs text-brown-600 mt-0.5">
+                                ${!state.selectedCheckIn 
+                                    ? 'Tocá el día de <strong>ingreso (Check-in)</strong>' 
+                                    : !state.selectedCheckOut 
+                                        ? 'Ahora tocá el día de <strong>salida (Check-out)</strong>' 
+                                        : '¡Fechas seleccionadas! Podés modificarlas tocando otro día'}
+                            </p>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" onclick="changePublicMonth(-1)" ${!canGoPrev ? 'disabled' : ''} class="p-2.5 rounded-xl border border-cream-300 bg-cream-50 hover:bg-cream-200 disabled:opacity-30 disabled:pointer-events-none text-brown-800 transition">
+                                <i data-lucide="chevron-left" class="w-5 h-5"></i>
+                            </button>
+                            <span class="font-display font-bold text-sm sm:text-base text-brown-900 min-w-[125px] text-center">
+                                ${MONTH_NAMES[month]} ${year}
+                            </span>
+                            <button type="button" onclick="changePublicMonth(1)" class="p-2.5 rounded-xl border border-cream-300 bg-cream-50 hover:bg-cream-200 text-brown-800 transition">
+                                <i data-lucide="chevron-right" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1.5 sm:gap-2 mb-2 text-center">
+                        ${DAY_NAMES_SHORT.map(d => `<div class="text-xs font-bold text-brown-600 py-1">${d}</div>`).join('')}
+                    </div>
+
+                    <div class="grid grid-cols-7 gap-1.5 sm:gap-2">
+                        ${cellsHtml}
+                    </div>
+
+                    <div class="mt-5 pt-4 border-t border-cream-200 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-brown-700">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-sage-500"></span>
+                            <span>Disponible / Con amiguitos</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-amberstatus-500"></span>
+                            <span>Pendiente de confirmación</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-busystatus-500"></span>
+                            <span>Completo / No disponible</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3 h-3 rounded-full bg-brown-700"></span>
+                            <span>Tu selección</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 bg-cream-100 rounded-2xl p-3.5 border border-cream-300 flex items-start gap-3">
+                        <input 
+                            type="checkbox" 
+                            id="late-checkout-toggle" 
+                            ${state.lateCheckout ? 'checked' : ''} 
+                            onchange="toggleLateCheckout(this.checked)"
+                            class="mt-1 w-4 h-4 rounded text-brown-700 focus:ring-terracotta-500 accent-brown-700 cursor-pointer"
+                        >
+                        <label for="late-checkout-toggle" class="text-xs sm:text-sm text-brown-800 cursor-pointer leading-snug">
+                            <strong>¿Retirás a tu perrito después de las 13:00 hs?</strong>
+                            <span class="block text-brown-600 text-xs mt-0.5">El check-out estándar es hasta la 1 pm. Si se retira más tarde, se suma automáticamente 1 noche adicional.</span>
+                        </label>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderMatchingDogsPanel() {
+            const hasSelection = state.selectedCheckIn && state.selectedCheckOut;
+            const matchingDogs = hasSelection 
+                ? getMatchingDogsForRange(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout)
+                : [];
+
+            return `
+                <div id="matching-dogs-section" class="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-cream-300 lg:sticky lg:top-6">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="font-display font-extrabold text-lg sm:text-xl text-brown-900">
+                            🐶 Perritos que compartirán estadía
+                        </h2>
+                    </div>
+
+                    ${!hasSelection ? `
+                        <div class="bg-cream-100 rounded-2xl p-6 text-center border border-dashed border-cream-300">
+                            <div class="w-12 h-12 rounded-2xl bg-white text-terracotta-500 flex items-center justify-center mx-auto mb-3 shadow-sm">
+                                <i data-lucide="calendar-search" class="w-6 h-6"></i>
+                            </div>
+                            <p class="text-sm font-semibold text-brown-800">Seleccioná tus fechas en el calendario</p>
+                            <p class="text-xs text-brown-600 mt-1">Te mostraremos automáticamente los amiguitos confirmados con los que conviviría tu perro en esos días.</p>
+                        </div>
+                    ` : matchingDogs.length === 0 ? `
+                        <div class="bg-sage-100/60 rounded-2xl p-6 text-center border border-sage-500/25 animate-fade-in">
+                            <p class="text-sm sm:text-base font-bold text-brown-900 leading-relaxed">
+                                ¡Por ahora, tu perrito tendría el espacio para disfrutar de una estadía más tranquila! 🐶
+                            </p>
+                            <p class="text-xs text-brown-600 mt-2">
+                                Del ${formatDisplayDate(state.selectedCheckIn)} al ${formatDisplayDate(state.selectedCheckOut)} aún no hay otros huéspedes confirmados.
+                            </p>
+                        </div>
+                    ` : `
+                        <p class="text-xs text-brown-600 mb-4">
+                            Estos amiguitos ya tienen su estadía confirmada entre el <strong>${formatDisplayDate(state.selectedCheckIn)}</strong> y el <strong>${formatDisplayDate(state.selectedCheckOut)}</strong>:
+                        </p>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-2 gap-3 animate-fade-in">
+                            ${matchingDogs.map(dog => `
+                                <div class="group bg-cream-50 rounded-2xl p-3 border border-cream-300 flex flex-col items-center text-center hover:shadow-md transition">
+                                    <div class="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-cream-200 mb-2.5 shadow-inner ring-2 ring-white">
+                                        <img 
+                                            src="${dog.photoUrl}" 
+                                            alt="${dog.name}" 
+                                            onerror="this.src='${DEFAULT_DOGS_PHOTOS[0]}'"
+                                            class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                        >
+                                    </div>
+                                    <span class="font-display font-extrabold text-sm sm:text-base text-brown-900">${dog.name}</span>
+                                    <span class="text-[11px] text-sage-600 font-semibold flex items-center gap-1 mt-0.5">
+                                        <i data-lucide="badge-check" class="w-3.5 h-3.5"></i> Confirmado
+                                    </span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function renderServiceConditions() {
+            return `
+                <div class="bg-white rounded-3xl p-5 sm:p-7 shadow-sm border border-cream-300 space-y-6 animate-fade-in">
+                    <div class="border-b border-cream-200 pb-4">
+                        <h3 class="font-display font-extrabold text-xl text-brown-900">📌 DETALLES DEL HOTEL CANINO</h3>
+                        <div class="mt-3 space-y-2.5 text-sm text-brown-800 leading-relaxed">
+                            <p>🕛 <strong>Check-in:</strong> A partir del mediodía. (Si necesitan dejar a su perrito antes, se coordina 🐶💛).</p>
+                            <p>🕐 <strong>Check-out:</strong> Hasta la 1 pm del día siguiente.</p>
+                            <p class="bg-cream-100 p-3 rounded-xl border border-cream-300 text-xs sm:text-sm">
+                                👉 Esto significa que la estadía se cobra por noche completa. Si la retirada es después de la 1 pm, automáticamente se suma una noche adicional, ya que el perrito ocupa el espacio y el cuidado correspondiente a una nueva jornada.
+                            </p>
+                            <p class="bg-terracotta-500/10 text-brown-900 p-3 rounded-xl border border-terracotta-500/30 text-xs sm:text-sm font-medium">
+                                👉 En fechas especiales como Navidad y Año Nuevo se cobra el valor doble.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="border-b border-cream-200 pb-4">
+                        <h3 class="font-display font-extrabold text-lg text-brown-900">🍽️ ALIMENTACIÓN Y PERTENENCIAS</h3>
+                        <ul class="mt-2.5 space-y-2 text-sm text-brown-800 list-disc pl-5">
+                            <li>La estadía no incluye el alimento, por lo que cada familia debe traer la comida de su perrito.</li>
+                            <li>Se respetan los horarios y rutinas de alimentación indicados por el tutor.</li>
+                            <li>Pueden traer su camita, mantita, juguete o algún premio, para que se sienta más cómodo y como en casa.</li>
+                        </ul>
+                    </div>
+
+                    <div class="border-b border-cream-200 pb-4">
+                        <h3 class="font-display font-extrabold text-lg text-brown-900">🐾 IMPORTANTE SOBRE LA CONVIVENCIA</h3>
+                        <div class="mt-2.5 space-y-2.5 text-sm text-brown-800 leading-relaxed">
+                            <p>El cuidado es compartido con otros perritos, por lo que no se reciben perros reactivos ni con dificultades para sociabilizar con otros perros, con el objetivo de mantener una convivencia tranquila y segura para todos 💛🐶.</p>
+                            <p class="font-semibold text-brown-900">Antes de confirmar cualquier reserva, se necesita una foto del carnet de vacunación.</p>
+                            <p>También se coordina un día de adaptación. Son 4 horas (de 14:00 a 18:00) con un costo de <strong>${formatCurrency(state.settings.adaptationRate)}</strong>. Lo único necesario es su platito y una ración de comida.</p>
+                            <div class="bg-cream-100 p-4 rounded-2xl border border-cream-300">
+                                <p class="font-bold text-brown-900 mb-1.5">En la adaptación el perrito:</p>
+                                <ul class="space-y-1.5 text-xs sm:text-sm list-disc pl-5">
+                                    <li>Conoce el departamento y se familiariza con el entorno.</li>
+                                    <li>Interactúa con algunos de los otros perritos.</li>
+                                    <li>Tiene tiempo para generar confianza conmigo antes de su estadía.</li>
+                                    <li>Permite evaluar su comportamiento, nivel de sociabilidad y adaptación al grupo.</li>
+                                </ul>
+                                <p class="text-xs text-brown-600 mt-2">Esto nos permite asegurarnos de que se sienta cómodo y que la convivencia sea adecuada para todos.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-display font-extrabold text-lg text-brown-900">📅 RESERVAS</h3>
+                        <ul class="mt-2.5 space-y-2 text-sm text-brown-800 list-disc pl-5">
+                            <li>Las reservas deben realizarse con días de anticipación.</li>
+                            <li>Para confirmar la fecha se solicita una seña del <strong>${state.settings.depositPercentage}%</strong>, la cual garantiza el lugar y permite organizar el espacio y los cuidados personalizados para cada perrito.</li>
+                            <li>En temporada alta la seña es sí o sí obligatoria para confirmar la reserva. Sin seña no se guarda el lugar.</li>
+                            <li>El ${100 - Number(state.settings.depositPercentage)}% restante se abona al momento del ingreso.</li>
+                        </ul>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSelectionSummaryAndForm() {
+            if (!state.selectedCheckIn || !state.selectedCheckOut) {
+                return `
+                    <div class="bg-cream-200/70 rounded-3xl p-6 border border-cream-300 text-center">
+                        <p class="text-sm font-bold text-brown-800">
+                            ${state.selectedCheckIn 
+                                ? `Ingreso seleccionado: <span class="text-terracotta-600">${formatDisplayDate(state.selectedCheckIn)}</span>. Ahora elegí el día de salida en el calendario.` 
+                                : '👆 Seleccioná tus fechas de ingreso y salida arriba para calcular el monto según el precio pasado por WhatsApp y solicitar tu reserva.'}
+                        </p>
+                    </div>
+                `;
+            }
+
+            const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
+            const hasRate = details.rateUsed > 0;
+            const inputVal = state.clientCustomRate !== '' ? state.clientCustomRate : (Number(state.settings.nightlyRate) > 0 ? state.settings.nightlyRate : '');
+
+            return `
+                <div class="bg-brown-800 text-white rounded-3xl p-5 sm:p-6 shadow-lg animate-fade-in">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-display font-extrabold text-lg sm:text-xl flex items-center gap-2">
+                            <i data-lucide="sparkles" class="w-5 h-5 text-terracotta-400"></i>
+                            Resumen de tu estadía
+                        </h3>
+                        <button type="button" onclick="clearSelection()" class="text-xs text-cream-300 hover:text-white underline">
+                            Cambiar fechas
+                        </button>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-brown-900/50 p-4 rounded-2xl border border-brown-600/50">
+                        <div>
+                            <span class="text-[11px] uppercase tracking-wider text-cream-300 block">Ingreso (Check-in)</span>
+                            <span class="font-bold text-sm sm:text-base">${formatDisplayDate(state.selectedCheckIn)}</span>
+                            <span class="text-[11px] text-terracotta-400 block">Desde 12:00 hs</span>
+                        </div>
+                        <div>
+                            <span class="text-[11px] uppercase tracking-wider text-cream-300 block">Salida (Check-out)</span>
+                            <span class="font-bold text-sm sm:text-base">${formatDisplayDate(state.selectedCheckOut)}</span>
+                            <span class="text-[11px] text-terracotta-400 block">${state.lateCheckout ? 'Después de 13:00 hs (+1 noche)' : 'Hasta 13:00 hs'}</span>
+                        </div>
+                        <div class="col-span-2 sm:col-span-1 border-t sm:border-t-0 pt-2 sm:pt-0 border-brown-600/50">
+                            <span class="text-[11px] uppercase tracking-wider text-cream-300 block">Duración total</span>
+                            <span class="font-extrabold text-lg text-terracotta-400">${details.totalNights} ${details.totalNights === 1 ? 'noche' : 'noches'}</span>
+                            ${details.specialNightsCount > 0 ? `<span class="text-[11px] text-amber-300 block">Incluye ${details.specialNightsCount} noche(s) especial(es) 2x</span>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="mt-4 bg-brown-900/60 p-4 rounded-2xl border border-brown-600/60">
+                        <label for="client-custom-rate" class="block text-xs font-bold text-cream-200 mb-1.5">
+                            💰 Precio por noche acordado por WhatsApp ($)
+                        </label>
+                        <div class="relative">
+                            <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-brown-700 font-extrabold text-sm">$</span>
+                            <input 
+                                type="number" 
+                                id="client-custom-rate" 
+                                min="0" 
+                                step="any"
+                                value="${inputVal}"
+                                oninput="updateClientCustomRate(this.value)"
+                                placeholder="Ingresá el valor por noche que te pasamos por WhatsApp"
+                                class="w-full pl-8 pr-4 py-2.5 rounded-xl bg-white text-brown-900 font-extrabold text-sm outline-none focus:ring-2 focus:ring-terracotta-400"
+                            >
+                        </div>
+                    </div>
+
+                    <div id="live-price-summary" class="mt-4 pt-4 border-t border-brown-600/60">
+                        ${hasRate ? `
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm">
+                                <div>
+                                    <span class="text-cream-300">Total estadía (${details.totalNights} ${details.totalNights === 1 ? 'noche' : 'noches'}):</span>
+                                    <span class="font-bold text-base ml-1 text-white">${formatCurrency(details.totalAmount)}</span>
+                                </div>
+                                <div class="bg-terracotta-500/20 border border-terracotta-400/40 px-3.5 py-1.5 rounded-xl">
+                                    <span class="text-cream-200">Seña a transferir (${state.settings.depositPercentage}%):</span>
+                                    <span class="font-extrabold text-terracotta-400 text-base ml-1">${formatCurrency(details.depositAmount)}</span>
+                                </div>
+                            </div>
+                        ` : `
+                            <p class="text-xs text-cream-300">
+                                Ingresá arriba el precio por noche que te pasamos por WhatsApp para calcular el total y el ${state.settings.depositPercentage}% de seña.
+                            </p>
+                        `}
+                    </div>
+                </div>
+
+                ${renderServiceConditions()}
+
+                <form onsubmit="submitBookingRequest(event)" class="bg-white rounded-3xl p-5 sm:p-7 shadow-sm border border-cream-300 space-y-4 animate-fade-in">
+                    <div>
+                        <h3 class="font-display font-extrabold text-xl text-brown-900">Completá tus datos para solicitar</h3>
+                        <p class="text-xs text-brown-600 mt-0.5">Al enviar, se notificará tu pedido para coordinar la seña y confirmar el lugar.</p>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-800 mb-1">Nombre del tutor *</label>
+                            <input type="text" id="req-owner-name" required placeholder="Ej. Laura Pérez" class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 focus:border-brown-700 focus:bg-white outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-800 mb-1">Nombre del perrito *</label>
+                            <input type="text" id="req-dog-name" required placeholder="Ej. Rocco" class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 focus:border-brown-700 focus:bg-white outline-none text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-800 mb-1">WhatsApp de contacto <span class="text-brown-600 font-normal">(opcional)</span></label>
+                            <input type="tel" id="req-whatsapp" placeholder="Ej. 700 12345" class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 focus:border-brown-700 focus:bg-white outline-none text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-800 mb-1">Fecha de ingreso</label>
+                            <input type="text" readonly value="${formatFullDate(state.selectedCheckIn)}" class="w-full px-4 py-3 rounded-xl bg-cream-200/70 border border-cream-300 text-brown-700 font-semibold text-sm cursor-not-allowed">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-800 mb-1">Fecha de salida</label>
+                            <input type="text" readonly value="${formatFullDate(state.selectedCheckOut)}" class="w-full px-4 py-3 rounded-xl bg-cream-200/70 border border-cream-300 text-brown-700 font-semibold text-sm cursor-not-allowed">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-bold text-brown-800 mb-1">Observaciones importantes sobre el perrito</label>
+                        <textarea id="req-notes" rows="3" placeholder="Contanos sobre su carácter, sociabilidad con otros perros, horarios de comida, medicación o si ya realizó jornada de adaptación..." class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 focus:border-brown-700 focus:bg-white outline-none text-sm"></textarea>
+                    </div>
+
+                    <div class="bg-cream-100 p-3.5 rounded-2xl border border-cream-300 flex items-start gap-3">
+                        <input type="checkbox" id="req-terms" required class="mt-1 w-4 h-4 rounded accent-brown-700 cursor-pointer">
+                        <label for="req-terms" class="text-xs sm:text-sm text-brown-800 cursor-pointer">
+                            Leí y acepto las <strong>condiciones del servicio</strong> (horarios de check-in/out, convivencia, carnet de vacunación obligatorio, día de adaptación y seña del ${state.settings.depositPercentage}%).
+                        </label>
+                    </div>
+
+                    <button type="submit" ${state.submitting ? 'disabled' : ''} class="w-full bg-terracotta-500 hover:bg-terracotta-600 active:scale-[0.99] text-white font-display font-extrabold text-base sm:text-lg py-4 px-6 rounded-2xl shadow-lg shadow-terracotta-500/25 transition flex items-center justify-center gap-2">
+                        ${state.submitting ? 'Verificando disponibilidad...' : 'SOLICITAR RESERVA 🐶'}
+                    </button>
+                </form>
+            `;
+        }
+
+        function renderPublicView() {
+            return `
+                <header class="bg-white/90 backdrop-blur-md border-b border-cream-300 sticky top-0 z-30">
+                    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 rounded-2xl bg-brown-700 text-white flex items-center justify-center shadow-sm shrink-0">
+                                <i data-lucide="paw-print" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h1 class="font-display font-extrabold text-lg sm:text-xl text-brown-900 leading-tight">${state.settings.hotelName}</h1>
+                                <p class="text-xs text-brown-600">Cuidado hogareño y estadías compartidas 💛</p>
+                            </div>
+                        </div>
+                        <button onclick="sharePublicLink()" class="flex items-center gap-2 bg-cream-200 hover:bg-cream-300 text-brown-900 font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl transition shrink-0">
+                            <i data-lucide="share-2" class="w-4 h-4 text-brown-700"></i>
+                            <span>Compartir enlace</span>
+                        </button>
+                    </div>
+                </header>
+
+                <section class="bg-gradient-to-b from-cream-200/70 to-cream-100 border-b border-cream-300/60">
+                    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+                        <div class="max-w-2xl">
+                            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white text-brown-700 text-xs font-bold shadow-xs border border-cream-300 mb-2.5">
+                                <i data-lucide="heart" class="w-3.5 h-3.5 text-terracotta-500 fill-terracotta-500"></i>
+                                Estadías personalizadas y seguras
+                            </span>
+                            <h2 class="font-display font-extrabold text-2xl sm:text-3xl text-brown-900 leading-tight">
+                                Consultá fechas disponibles y conocé con quiénes jugará tu perrito
+                            </h2>
+                            <p class="text-sm text-brown-600 mt-2">
+                                Elegí los días de ingreso y salida en el calendario para verificar cupos y ver los amiguitos confirmados en esas fechas.
+                            </p>
+                        </div>
+                    </div>
+                </section>
+
+                <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                        <div class="lg:col-span-7 space-y-6">
+                            ${renderPublicCalendar()}
+                            <div class="block lg:hidden">
+                                ${renderMatchingDogsPanel()}
+                            </div>
+                            ${renderSelectionSummaryAndForm()}
+                        </div>
+
+                        <div class="hidden lg:block lg:col-span-5">
+                            ${renderMatchingDogsPanel()}
+                        </div>
+                    </div>
+                </main>
+
+                <footer class="bg-white border-t border-cream-300 mt-12">
+                    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-brown-600">
+                        <div class="flex items-center gap-2">
+                            <i data-lucide="paw-print" class="w-4 h-4 text-brown-700"></i>
+                            <span><strong>${state.settings.hotelName}</strong> — Todos los derechos reservados.</span>
+                        </div>
+                        <button onclick="switchView('admin')" class="flex items-center gap-1.5 text-brown-600 hover:text-brown-900 font-semibold px-3 py-1.5 rounded-lg hover:bg-cream-100 transition">
+                            <i data-lucide="lock" class="w-3.5 h-3.5"></i>
+                            Acceso Administración
+                        </button>
+                    </div>
+                </footer>
+            `;
+        }
+
+        // ==========================================
+        // 9. ADMIN PANEL: AUTHENTICATION & ACTIONS
+        // ==========================================
+        window.handleAdminLogin = async function(e) {
+            e.preventDefault();
+            const email = document.getElementById('admin-email').value.trim();
+            const password = document.getElementById('admin-password').value.trim();
+
+            if (password === state.settings.adminPin || (email === 'admin@hotelcanino.com' && password === 'hotelcanino2026')) {
+                if (!isLocalFallback && email && password.length >= 6) {
+                    try {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    } catch (err) {
+                        try {
+                            await createUserWithEmailAndPassword(auth, email, password);
+                        } catch (createErr) {}
+                    }
+                }
+                state.isAdminAuthenticated = true;
+                showToast("¡Bienvenido al Panel de Administración!", "success");
+                render();
+            } else {
+                showToast("Credenciales incorrectas. Verificá usuario y contraseña.", "error");
+            }
+        };
+
+        window.quickDemoAdminLogin = function() {
+            state.isAdminAuthenticated = true;
+            showToast("Acceso rápido concedido al panel del propietario", "success");
+            render();
+        };
+
+        window.adminLogout = function() {
+            state.isAdminAuthenticated = false;
+            switchView('public');
+        };
+
+        window.setAdminTab = function(tab) {
+            state.adminTab = tab;
+            render();
+        };
+
+        window.setBookingFilter = function(filter) {
+            state.bookingFilter = filter;
+            render();
+        };
+
+        window.changeAdminMonth = function(delta) {
+            let m = state.adminMonth + delta;
+            let y = state.adminYear;
+            if (m < 0) { m = 11; y--; }
+            if (m > 11) { m = 0; y++; }
+            state.adminMonth = m;
+            state.adminYear = y;
+            render();
+        };
+
+        window.updateBookingStatus = async function(bookingId, newStatus) {
+            const booking = state.bookings.find(b => b.id === bookingId);
+            if (!booking) return;
+
+            if (newStatus === 'confirmada' || newStatus === 'en_estadia') {
+                const check = isRangeAvailable(booking.checkIn, booking.checkOut, booking.lateCheckout, booking.id);
+                if (!check.valid) {
+                    showToast(`No se puede confirmar: ${check.reason}`, "error");
+                    return;
+                }
+            }
+
+            try {
+                if (!isLocalFallback) {
+                    await updateDoc(doc(getBookingsCol(), bookingId), { status: newStatus });
+                    const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
+                    if (linkedDog) {
+                        await updateDoc(doc(getHostedDogsCol(), linkedDog.id), { status: newStatus });
+                    } else if (newStatus === 'confirmada' || newStatus === 'en_estadia') {
+                        await addDoc(getHostedDogsCol(), {
+                            dogName: booking.dogName,
+                            photoUrl: booking.dogPhotoUrl || DEFAULT_DOGS_PHOTOS[Math.abs(booking.dogName.length) % DEFAULT_DOGS_PHOTOS.length],
+                            checkIn: booking.checkIn,
+                            checkOut: booking.checkOut,
+                            status: newStatus,
+                            bookingId: booking.id
+                        });
+                    }
+                } else {
+                    booking.status = newStatus;
+                }
+                showToast("Estado de reserva actualizado", "success");
+            } catch (err) {
+                console.error(err);
+                showToast("Error al actualizar estado", "error");
+            }
+        };
+
+        window.toggleBookingPayment = async function(bookingId, field) {
+            const booking = state.bookings.find(b => b.id === bookingId);
+            if (!booking) return;
+            const newVal = !booking[field];
+            try {
+                if (!isLocalFallback) {
+                    await updateDoc(doc(getBookingsCol(), bookingId), { [field]: newVal });
+                } else {
+                    booking[field] = newVal;
+                }
+                showToast(field === 'depositPaid' ? (newVal ? "Seña marcada como recibida" : "Seña marcada como pendiente") : (newVal ? "Saldo total marcado como pagado" : "Saldo marcado como pendiente"), "success");
+            } catch (err) {
+                showToast("Error al actualizar pago", "error");
+            }
+        };
+
+        window.openEditBookingModal = function(bookingId) {
+            const b = state.bookings.find(item => item.id === bookingId);
+            if (!b) return;
+
+            openModal(`
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-display font-extrabold text-xl text-brown-900">Gestionar Reserva: ${b.dogName}</h3>
+                    <button onclick="closeModal()" class="p-1.5 rounded-xl hover:bg-cream-200 text-brown-600">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <form onsubmit="saveBookingEdits(event, '${b.id}')" class="space-y-4 text-sm">
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del perrito</label>
+                            <input type="text" id="edit-b-dog" value="${b.dogName}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Tutor</label>
+                            <input type="text" id="edit-b-owner" value="${b.ownerName}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Check-in</label>
+                            <input type="date" id="edit-b-in" value="${b.checkIn}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Check-out</label>
+                            <input type="date" id="edit-b-out" value="${b.checkOut}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 bg-cream-100 p-3 rounded-xl border border-cream-300">
+                        <input type="checkbox" id="edit-b-late" ${b.lateCheckout ? 'checked' : ''} class="w-4 h-4 accent-brown-700">
+                        <label for="edit-b-late" class="text-xs font-semibold text-brown-800">Retiro después de las 13:00 hs (+1 noche)</label>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-brown-700 mb-1">Fotografía del perrito (para vista pública)</label>
+                        <input type="file" id="edit-b-photo-file" accept="image/*" class="w-full text-xs text-brown-700 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-brown-700 file:text-white file:font-bold">
+                        <p class="text-[11px] text-brown-600 mt-1">Opcional: subí una foto para mostrar cuando la reserva esté confirmada.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-brown-700 mb-1">Observaciones privadas (solo admin)</label>
+                        <textarea id="edit-b-private" rows="2" placeholder="Notas internas, vacunas verificadas, adaptación..." class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">${b.privateNotes || ''}</textarea>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl bg-cream-200 font-bold text-brown-800">Cancelar</button>
+                        <button type="submit" class="px-5 py-2.5 rounded-xl bg-brown-700 hover:bg-brown-800 text-white font-bold">Guardar Cambios</button>
+                    </div>
+                </form>
+            `);
+        };
+
+        window.saveBookingEdits = async function(e, bookingId) {
+            e.preventDefault();
+            const b = state.bookings.find(item => item.id === bookingId);
+            if (!b) return;
+
+            const dogName = document.getElementById('edit-b-dog').value.trim();
+            const ownerName = document.getElementById('edit-b-owner').value.trim();
+            const checkIn = document.getElementById('edit-b-in').value;
+            const checkOut = document.getElementById('edit-b-out').value;
+            const lateCheckout = document.getElementById('edit-b-late').checked;
+            const privateNotes = document.getElementById('edit-b-private').value.trim();
+            const fileInput = document.getElementById('edit-b-photo-file');
+
+            if (checkOut <= checkIn) {
+                showToast("La salida debe ser posterior al ingreso.", "error");
+                return;
+            }
+
+            if (b.status === 'confirmada' || b.status === 'en_estadia') {
+                const check = isRangeAvailable(checkIn, checkOut, lateCheckout, bookingId);
+                if (!check.valid) {
+                    showToast(check.reason, "error");
+                    return;
+                }
+            }
+
+            let photoUrl = b.dogPhotoUrl || "";
+            if (fileInput.files && fileInput.files[0]) {
+                photoUrl = await compressImageToDataURL(fileInput.files[0]);
+            }
+
+            const details = calculateStayDetails(checkIn, checkOut, lateCheckout);
+            const updates = {
+                dogName,
+                ownerName,
+                checkIn,
+                checkOut,
+                lateCheckout,
+                privateNotes,
+                dogPhotoUrl: photoUrl,
+                nightsCount: details.totalNights,
+                specialNightsCount: details.specialNightsCount,
+                totalAmount: details.totalAmount,
+                depositAmount: details.depositAmount
+            };
+
+            try {
+                if (!isLocalFallback) {
+                    await updateDoc(doc(getBookingsCol(), bookingId), updates);
+                    const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
+                    if (linkedDog) {
+                        await updateDoc(doc(getHostedDogsCol(), linkedDog.id), {
+                            dogName,
+                            checkIn,
+                            checkOut,
+                            ...(photoUrl ? { photoUrl } : {})
+                        });
+                    }
+                } else {
+                    Object.assign(b, updates);
+                }
+                closeModal();
+                showToast("Reserva actualizada correctamente", "success");
+            } catch (err) {
+                showToast("Error al guardar cambios", "error");
+            }
+        };
+
+        window.deleteBookingRecord = async function(bookingId) {
+            try {
+                if (!isLocalFallback) {
+                    await deleteDoc(doc(getBookingsCol(), bookingId));
+                    const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
+                    if (linkedDog) {
+                        await deleteDoc(doc(getHostedDogsCol(), linkedDog.id));
+                    }
+                } else {
+                    state.bookings = state.bookings.filter(b => b.id !== bookingId);
+                }
+                showToast("Reserva eliminada", "info");
+            } catch (err) {
+                showToast("Error al eliminar", "error");
+            }
+        };
+
+        window.openDogFormModal = function(dogId = null) {
+            const dog = dogId ? state.hostedDogs.find(d => d.id === dogId) : null;
+            openModal(`
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-display font-extrabold text-xl text-brown-900">
+                        ${dog ? 'Editar Perrito Alojado' : 'Agregar Perrito Alojado 🐶'}
+                    </h3>
+                    <button onclick="closeModal()" class="p-1.5 rounded-xl hover:bg-cream-200 text-brown-600">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <form onsubmit="saveHostedDog(event, '${dog ? dog.id : ''}')" class="space-y-4 text-sm">
+                    <div>
+                        <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del perrito *</label>
+                        <input type="text" id="dog-form-name" value="${dog ? dog.dogName : ''}" required placeholder="Ej. Simba" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-brown-700 mb-1">Fotografía del perrito *</label>
+                        <input type="file" id="dog-form-file" accept="image/*" ${dog ? '' : 'required'} class="w-full text-xs text-brown-700 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:bg-brown-700 file:text-white file:font-bold">
+                        <p class="text-[11px] text-brown-600 mt-1">Se optimizará automáticamente para mostrarse rápido en celulares.</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Fecha de ingreso *</label>
+                            <input type="date" id="dog-form-in" value="${dog ? dog.checkIn : getTodayStr()}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Fecha de salida *</label>
+                            <input type="date" id="dog-form-out" value="${dog ? dog.checkOut : addDays(getTodayStr(), 3)}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-brown-700 mb-1">Estado de la reserva</label>
+                        <select id="dog-form-status" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-semibold">
+                            <option value="confirmada" ${dog?.status === 'confirmada' ? 'selected' : ''}>Confirmada (Visible en web pública)</option>
+                            <option value="en_estadia" ${dog?.status === 'en_estadia' ? 'selected' : ''}>En estadía (Visible en web pública)</option>
+                            <option value="finalizada" ${dog?.status === 'finalizada' ? 'selected' : ''}>Finalizada</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl bg-cream-200 font-bold text-brown-800">Cancelar</button>
+                        <button type="submit" class="px-5 py-2.5 rounded-xl bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold">Guardar Perrito</button>
+                    </div>
+                </form>
+            `);
+        };
+
+        window.saveHostedDog = async function(e, dogId) {
+            e.preventDefault();
+            const dogName = document.getElementById('dog-form-name').value.trim();
+            const checkIn = document.getElementById('dog-form-in').value;
+            const checkOut = document.getElementById('dog-form-out').value;
+            const status = document.getElementById('dog-form-status').value;
+            const fileInput = document.getElementById('dog-form-file');
+
+            if (checkOut <= checkIn) {
+                showToast("La salida debe ser posterior al ingreso.", "error");
+                return;
+            }
+
+            let photoUrl = dogId ? state.hostedDogs.find(d => d.id === dogId)?.photoUrl : DEFAULT_DOGS_PHOTOS[0];
+            if (fileInput.files && fileInput.files[0]) {
+                photoUrl = await compressImageToDataURL(fileInput.files[0]);
+            }
+
+            try {
+                if (!isLocalFallback) {
+                    if (dogId) {
+                        await updateDoc(doc(getHostedDogsCol(), dogId), { dogName, photoUrl, checkIn, checkOut, status });
+                    } else {
+                        await addDoc(getHostedDogsCol(), { dogName, photoUrl, checkIn, checkOut, status, bookingId: "" });
+                    }
+                } else {
+                    if (dogId) {
+                        const d = state.hostedDogs.find(x => x.id === dogId);
+                        Object.assign(d, { dogName, photoUrl, checkIn, checkOut, status });
+                    } else {
+                        state.hostedDogs.push({ id: 'dog-' + Date.now(), dogName, photoUrl, checkIn, checkOut, status });
+                    }
+                }
+                closeModal();
+                showToast("Perrito guardado y sincronizado con la página pública 🐶", "success");
+            } catch (err) {
+                showToast("Error al guardar perrito", "error");
+            }
+        };
+
+        window.deleteHostedDog = async function(dogId) {
+            try {
+                if (!isLocalFallback) {
+                    await deleteDoc(doc(getHostedDogsCol(), dogId));
+                } else {
+                    state.hostedDogs = state.hostedDogs.filter(d => d.id !== dogId);
+                }
+                showToast("Registro eliminado", "info");
+            } catch (err) {
+                showToast("Error al eliminar", "error");
+            }
+        };
+
+        window.handleBlockDateSubmit = async function(e) {
+            e.preventDefault();
+            const date = document.getElementById('block-date-input').value;
+            const reason = document.getElementById('block-reason-input').value.trim() || "Fecha bloqueada";
+            if (!date) return;
+
+            const existing = state.blockedDates.find(b => b.date === date);
+            if (existing) {
+                showToast("Esa fecha ya está bloqueada.", "warning");
+                return;
+            }
+
+            try {
+                if (!isLocalFallback) {
+                    await addDoc(getBlockedDatesCol(), { date, reason });
+                } else {
+                    state.blockedDates.push({ id: 'blk-' + Date.now(), date, reason });
+                }
+                showToast(`Fecha ${formatFullDate(date)} bloqueada`, "success");
+            } catch (err) {
+                showToast("Error al bloquear fecha", "error");
+            }
+        };
+
+        window.unblockDate = async function(blockId) {
+            try {
+                if (!isLocalFallback) {
+                    await deleteDoc(doc(getBlockedDatesCol(), blockId));
+                } else {
+                    state.blockedDates = state.blockedDates.filter(b => b.id !== blockId);
+                }
+                showToast("Fecha desbloqueada", "success");
+            } catch (err) {
+                showToast("Error al desbloquear", "error");
+            }
+        };
+
+        window.saveSettingsForm = async function(e) {
+            e.preventDefault();
+            const updatedSettings = {
+                ...state.settings,
+                hotelName: document.getElementById('set-hotel-name').value.trim() || "Hotel Canino",
+                maxCapacity: Math.max(1, parseInt(document.getElementById('set-capacity').value) || 4),
+                nightlyRate: Math.max(0, parseFloat(document.getElementById('set-nightly').value) || 0),
+                adaptationRate: Math.max(0, parseFloat(document.getElementById('set-adaptation').value) || 25000),
+                depositPercentage: Math.min(100, Math.max(1, parseInt(document.getElementById('set-deposit').value) || 50)),
+                bankAlias: document.getElementById('set-alias').value.trim(),
+                accountHolder: document.getElementById('set-holder').value.trim(),
+                ownerWhatsapp: document.getElementById('set-whatsapp').value.trim(),
+                ownerEmail: document.getElementById('set-email').value.trim(),
+                emailjsPublicKey: document.getElementById('set-emailjs-public').value.trim(),
+                emailjsServiceId: document.getElementById('set-emailjs-service').value.trim(),
+                emailjsTemplateId: document.getElementById('set-emailjs-template').value.trim(),
+                adminPin: document.getElementById('set-pin').value.trim() || state.settings.adminPin
+            };
+
+            try {
+                if (!isLocalFallback) {
+                    await setDoc(getSettingsRef(), updatedSettings);
+                } else {
+                    state.settings = updatedSettings;
+                }
+                showToast("Configuración y tarifas actualizadas en tiempo real", "success");
+            } catch (err) {
+                showToast("Error al guardar configuración", "error");
+            }
+        };
+
+        window.addSpecialDate = async function() {
+            const val = document.getElementById('new-special-date').value.trim();
+            if (!val) return;
+            if (!/^\d{2}-\d{2}$/.test(val) && !/^\d{4}-\d{2}-\d{2}$/.test(val)) {
+                showToast("Usá formato MM-DD (ej. 12-24) o YYYY-MM-DD", "warning");
+                return;
+            }
+            if (state.settings.specialDates.includes(val)) {
+                showToast("Esa fecha ya está en la lista", "warning");
+                return;
+            }
+            const nextList = [...state.settings.specialDates, val];
+            try {
+                if (!isLocalFallback) {
+                    await updateDoc(getSettingsRef(), { specialDates: nextList });
+                } else {
+                    state.settings.specialDates = nextList;
+                }
+                document.getElementById('new-special-date').value = '';
+                showToast("Fecha especial agregada", "success");
+            } catch (err) {
+                showToast("Error al agregar fecha", "error");
+            }
+        };
+
+        window.removeSpecialDate = async function(dateTag) {
+            const nextList = state.settings.specialDates.filter(d => d !== dateTag);
+            try {
+                if (!isLocalFallback) {
+                    await updateDoc(getSettingsRef(), { specialDates: nextList });
+                } else {
+                    state.settings.specialDates = nextList;
+                }
+                showToast("Fecha especial quitada", "info");
+            } catch (err) {
+                showToast("Error al quitar fecha", "error");
+            }
+        };
+
+        // ==========================================
+        // 10. RENDER ADMIN PANEL
+        // ==========================================
+        function getStatusBadge(status) {
+            const map = {
+                pendiente_confirmacion: { label: 'Pendiente confirmación', cls: 'bg-amberstatus-100 text-amberstatus-600' },
+                pendiente_sena: { label: 'Pendiente de seña', cls: 'bg-orange-100 text-orange-700' },
+                confirmada: { label: 'Confirmada', cls: 'bg-sage-100 text-sage-600' },
+                en_estadia: { label: 'En estadía', cls: 'bg-blue-100 text-blue-700' },
+                finalizada: { label: 'Finalizada', cls: 'bg-cream-200 text-brown-700' },
+                cancelada: { label: 'Cancelada', cls: 'bg-busystatus-100 text-busystatus-600' }
+            };
+            const item = map[status] || { label: status, cls: 'bg-cream-200 text-brown-800' };
+            return `<span class="px-2.5 py-1 rounded-full text-[11px] font-bold ${item.cls}">${item.label}</span>`;
+        }
+
+        function renderAdminDashboard() {
+            const todayStr = getTodayStr();
+            const confirmedTotal = state.bookings.filter(b => b.status === 'confirmada' || b.status === 'en_estadia').length;
+            const pendingTotal = state.bookings.filter(b => b.status === 'pendiente_confirmacion' || b.status === 'pendiente_sena').length;
+            const upcomingTotal = state.bookings.filter(b => (b.status === 'confirmada' || b.status === 'en_estadia') && b.checkIn >= todayStr).length;
+            const hostedToday = state.bookings.filter(b => {
+                if (b.status !== 'confirmada' && b.status !== 'en_estadia') return false;
+                return getOccupiedNights(b.checkIn, b.checkOut, b.lateCheckout).includes(todayStr);
+            }).length;
+
+            const y = today.getFullYear();
+            const m = today.getMonth();
+            const daysInM = new Date(y, m + 1, 0).getDate();
+            let occupiedDays = 0;
+            let availableDays = 0;
+            for (let d = 1; d <= daysInM; d++) {
+                const ds = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const occ = getDateOccupancy(ds);
+                if (occ.confirmedCount > 0 || occ.isBlocked) occupiedDays++;
+                if (occ.isAvailable && ds >= todayStr) availableDays++;
+            }
+
+            const pendingList = state.bookings.filter(b => b.status === 'pendiente_confirmacion' || b.status === 'pendiente_sena');
+
+            return `
+                <div class="space-y-6 animate-fade-in">
+                    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Confirmadas</span>
+                            <p class="font-display font-extrabold text-2xl text-sage-600 mt-1">${confirmedTotal}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Pendientes</span>
+                            <p class="font-display font-extrabold text-2xl text-amberstatus-600 mt-1">${pendingTotal}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Próximas estadías</span>
+                            <p class="font-display font-extrabold text-2xl text-brown-900 mt-1">${upcomingTotal}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Alojados hoy</span>
+                            <p class="font-display font-extrabold text-2xl text-terracotta-600 mt-1">${hostedToday} / ${state.settings.maxCapacity}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Días ocupados (mes)</span>
+                            <p class="font-display font-extrabold text-2xl text-brown-800 mt-1">${occupiedDays}</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-2xl border border-cream-300 shadow-xs">
+                            <span class="text-xs text-brown-600 font-semibold">Días disp. (mes)</span>
+                            <p class="font-display font-extrabold text-2xl text-sage-600 mt-1">${availableDays}</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 shadow-xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-display font-extrabold text-lg text-brown-900 flex items-center gap-2">
+                                <i data-lucide="bell-ring" class="w-5 h-5 text-amberstatus-500"></i>
+                                Solicitudes pendientes de revisión (${pendingList.length})
+                            </h3>
+                            <button onclick="setAdminTab('bookings')" class="text-xs font-bold text-terracotta-600 hover:underline">Ver todas</button>
+                        </div>
+                        ${pendingList.length === 0 ? `
+                            <p class="text-sm text-brown-600 bg-cream-100 p-4 rounded-2xl text-center">No hay solicitudes pendientes en este momento.</p>
+                        ` : `
+                            <div class="space-y-3">
+                                ${pendingList.map(b => `
+                                    <div class="bg-cream-50 p-4 rounded-2xl border border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        <div>
+                                            <div class="flex items-center gap-2 flex-wrap">
+                                                <span class="font-display font-extrabold text-base text-brown-900">🐶 ${b.dogName}</span>
+                                                <span class="text-xs text-brown-600">• Tutor: <strong>${b.ownerName}</strong></span>
+                                                ${getStatusBadge(b.status)}
+                                            </div>
+                                            <p class="text-xs text-brown-700 mt-1">
+                                                Del <strong>${formatFullDate(b.checkIn)}</strong> al <strong>${formatFullDate(b.checkOut)}</strong> (${b.nightsCount} noches)
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0">
+                                            <button onclick="updateBookingStatus('${b.id}', 'confirmada')" class="bg-sage-500 hover:bg-sage-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition">
+                                                Confirmar
+                                            </button>
+                                            <button onclick="openEditBookingModal('${b.id}')" class="bg-white hover:bg-cream-200 border border-cream-300 text-brown-800 text-xs font-bold px-3 py-2 rounded-xl transition">
+                                                Detalles
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `}
+                    </div>
+
+                    ${renderAdminCalendar(true)}
+                </div>
+            `;
+        }
+
+        function renderAdminBookings() {
+            const filters = [
+                { id: 'all', label: 'Todas' },
+                { id: 'pendiente_confirmacion', label: 'Pendiente confirmación' },
+                { id: 'pendiente_sena', label: 'Pendiente seña' },
+                { id: 'confirmada', label: 'Confirmadas' },
+                { id: 'en_estadia', label: 'En estadía' },
+                { id: 'finalizada', label: 'Finalizadas' },
+                { id: 'cancelada', label: 'Canceladas' }
+            ];
+
+            const filtered = state.bookingFilter === 'all' 
+                ? state.bookings 
+                : state.bookings.filter(b => b.status === state.bookingFilter);
+
+            return `
+                <div class="space-y-5 animate-fade-in">
+                    <div class="flex items-center gap-2 overflow-x-auto pb-2">
+                        ${filters.map(f => `
+                            <button onclick="setBookingFilter('${f.id}')" class="px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition ${state.bookingFilter === f.id ? 'bg-brown-800 text-white' : 'bg-white border border-cream-300 text-brown-700 hover:bg-cream-200'}">
+                                ${f.label}
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    ${filtered.length === 0 ? `
+                        <div class="bg-white rounded-3xl p-8 border border-cream-300 text-center text-sm text-brown-600">
+                            No se encontraron reservas con ese filtro.
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            ${filtered.map(b => {
+                                const cleanWa = (b.whatsapp || '').replace(/\D/g, '');
+                                return `
+                                    <div class="bg-white rounded-3xl p-5 border border-cream-300 shadow-xs flex flex-col justify-between space-y-4">
+                                        <div>
+                                            <div class="flex items-start justify-between gap-2">
+                                                <div>
+                                                    <h4 class="font-display font-extrabold text-lg text-brown-900">🐶 ${b.dogName}</h4>
+                                                    <p class="text-xs text-brown-600">Tutor: <strong>${b.ownerName}</strong></p>
+                                                </div>
+                                                ${getStatusBadge(b.status)}
+                                            </div>
+
+                                            <div class="mt-3 bg-cream-100 rounded-2xl p-3 text-xs space-y-1.5 border border-cream-300">
+                                                <div class="flex justify-between">
+                                                    <span class="text-brown-600">Fechas:</span>
+                                                    <span class="font-bold text-brown-900">${formatFullDate(b.checkIn)} → ${formatFullDate(b.checkOut)} (${b.nightsCount} noches)</span>
+                                                </div>
+                                                ${b.lateCheckout ? `<div class="text-terracotta-600 font-semibold">• Retiro después de las 13:00 hs (+1 noche incluida)</div>` : ''}
+                                                <div class="flex justify-between">
+                                                    <span class="text-brown-600">Total / Seña (${state.settings.depositPercentage}%):</span>
+                                                    <span class="font-bold text-brown-900">${formatCurrency(b.totalAmount)} / <span class="text-terracotta-600">${formatCurrency(b.depositAmount)}</span></span>
+                                                </div>
+                                            </div>
+
+                                            ${b.notes ? `<p class="mt-2.5 text-xs text-brown-700 bg-cream-50 p-2.5 rounded-xl border border-cream-200"><strong>Tutor dice:</strong> ${b.notes}</p>` : ''}
+                                            ${b.privateNotes ? `<p class="mt-1.5 text-xs text-brown-800 bg-amberstatus-100/60 p-2.5 rounded-xl border border-amberstatus-500/30"><strong>Nota privada:</strong> ${b.privateNotes}</p>` : ''}
+
+                                            <div class="mt-3 flex flex-wrap gap-3 text-xs">
+                                                <label class="flex items-center gap-1.5 cursor-pointer bg-cream-50 px-2.5 py-1.5 rounded-lg border border-cream-300">
+                                                    <input type="checkbox" ${b.depositPaid ? 'checked' : ''} onchange="toggleBookingPayment('${b.id}', 'depositPaid')" class="accent-sage-600">
+                                                    <span class="font-semibold ${b.depositPaid ? 'text-sage-600' : 'text-brown-700'}">Seña ${state.settings.depositPercentage}% recibida</span>
+                                                </label>
+                                                <label class="flex items-center gap-1.5 cursor-pointer bg-cream-50 px-2.5 py-1.5 rounded-lg border border-cream-300">
+                                                    <input type="checkbox" ${b.balancePaid ? 'checked' : ''} onchange="toggleBookingPayment('${b.id}', 'balancePaid')" class="accent-sage-600">
+                                                    <span class="font-semibold ${b.balancePaid ? 'text-sage-600' : 'text-brown-700'}">Saldo restante pagado</span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div class="pt-3 border-t border-cream-200 flex flex-wrap items-center justify-between gap-2">
+                                            <div class="flex items-center gap-1.5">
+                                                ${cleanWa ? `
+                                                    <a href="https://wa.me/${cleanWa}" target="_blank" class="p-2 rounded-xl bg-sage-100 text-sage-600 hover:bg-sage-500 hover:text-white transition" title="Escribir por WhatsApp">
+                                                        <i data-lucide="message-circle" class="w-4 h-4"></i>
+                                                    </a>
+                                                ` : ''}
+                                                <button onclick="openEditBookingModal('${b.id}')" class="p-2 rounded-xl bg-cream-200 text-brown-800 hover:bg-cream-300 transition" title="Editar / Notas / Foto">
+                                                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                                                </button>
+                                                <button onclick="deleteBookingRecord('${b.id}')" class="p-2 rounded-xl bg-busystatus-100 text-busystatus-600 hover:bg-busystatus-500 hover:text-white transition" title="Eliminar">
+                                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                                </button>
+                                            </div>
+
+                                            <select onchange="updateBookingStatus('${b.id}', this.value)" class="text-xs font-bold px-3 py-2 rounded-xl bg-cream-100 border border-cream-300 text-brown-900">
+                                                <option value="pendiente_confirmacion" ${b.status === 'pendiente_confirmacion' ? 'selected' : ''}>Pendiente confirmación</option>
+                                                <option value="pendiente_sena" ${b.status === 'pendiente_sena' ? 'selected' : ''}>Pendiente de seña</option>
+                                                <option value="confirmada" ${b.status === 'confirmada' ? 'selected' : ''}>✅ Confirmada</option>
+                                                <option value="en_estadia" ${b.status === 'en_estadia' ? 'selected' : ''}>🏠 En estadía</option>
+                                                <option value="finalizada" ${b.status === 'finalizada' ? 'selected' : ''}>Finalizada</option>
+                                                <option value="cancelada" ${b.status === 'cancelada' ? 'selected' : ''}>❌ Cancelada</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function renderAdminHostedDogs() {
+            return `
+                <div class="space-y-5 animate-fade-in">
+                    <div class="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 class="font-display font-extrabold text-xl text-brown-900">🐶 Perritos alojados</h3>
+                            <p class="text-xs text-brown-600 mt-0.5">Cargá fotografías y fechas. Los perritos con estado <strong>Confirmada</strong> o <strong>En estadía</strong> aparecen automáticamente en la web pública cuando coinciden las fechas.</p>
+                        </div>
+                        <button onclick="openDogFormModal()" class="bg-terracotta-500 hover:bg-terracotta-600 text-white font-bold text-sm px-4 py-3 rounded-2xl shadow-sm flex items-center justify-center gap-2 shrink-0 transition">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                            Cargar Perrito y Foto
+                        </button>
+                    </div>
+
+                    ${state.hostedDogs.length === 0 ? `
+                        <div class="bg-white rounded-3xl p-8 border border-cream-300 text-center text-sm text-brown-600">
+                            Aún no cargaste perritos manualmente. Tocá "Cargar Perrito y Foto" para agregar uno.
+                        </div>
+                    ` : `
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${state.hostedDogs.map(dog => `
+                                <div class="bg-white rounded-3xl p-4 border border-cream-300 shadow-xs flex items-center gap-4">
+                                    <img src="${dog.photoUrl || DEFAULT_DOGS_PHOTOS[0]}" alt="${dog.dogName}" class="w-20 h-20 rounded-2xl object-cover bg-cream-200 shrink-0">
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center justify-between gap-1">
+                                            <h4 class="font-display font-extrabold text-base text-brown-900 truncate">${dog.dogName}</h4>
+                                        </div>
+                                        <p class="text-xs text-brown-600 mt-0.5">${formatFullDate(dog.checkIn)} → ${formatFullDate(dog.checkOut)}</p>
+                                        <div class="mt-1.5">${getStatusBadge(dog.status)}</div>
+                                        <div class="mt-2.5 flex items-center gap-2">
+                                            <button onclick="openDogFormModal('${dog.id}')" class="text-xs font-bold text-brown-700 hover:underline">Editar</button>
+                                            <span class="text-cream-300">|</span>
+                                            <button onclick="deleteHostedDog('${dog.id}')" class="text-xs font-bold text-busystatus-600 hover:underline">Eliminar</button>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        function renderAdminCalendar(compact = false) {
+            const year = state.adminYear;
+            const month = state.adminMonth;
+            const firstDay = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            let cells = '';
+            for (let i = 0; i < firstDay; i++) {
+                cells += `<div class="min-h-[70px] sm:min-h-[85px] bg-cream-50/40 rounded-xl"></div>`;
+            }
+
+            for (let d = 1; d <= daysInMonth; d++) {
+                const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const occ = getDateOccupancy(ds);
+                let bg = "bg-white border-cream-300";
+                if (occ.isBlocked) bg = "bg-slate-200/80 border-slate-400";
+                else if (occ.isFull) bg = "bg-busystatus-100 border-busystatus-500/40";
+                else if (occ.confirmedCount > 0) bg = "bg-sage-100/70 border-sage-500/40";
+                else if (occ.pendingCount > 0) bg = "bg-amberstatus-100/70 border-amberstatus-500/40";
+
+                cells += `
+                    <div class="min-h-[70px] sm:min-h-[85px] p-1.5 sm:p-2 rounded-xl border ${bg} flex flex-col justify-between text-xs">
+                        <div class="flex items-center justify-between">
+                            <span class="font-bold text-brown-900">${d}</span>
+                            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/80 text-brown-700">${occ.confirmedCount}/${occ.maxCap}</span>
+                        </div>
+                        <div class="space-y-0.5 mt-1 overflow-hidden">
+                            ${occ.isBlocked ? `<span class="block text-[10px] font-bold text-slate-700 truncate">🚫 ${occ.isBlocked.reason}</span>` : ''}
+                            ${occ.confirmedBookings.map(b => `<span class="block text-[10px] font-bold text-sage-600 truncate">🐶 ${b.dogName}</span>`).join('')}
+                            ${occ.pendingBookings.map(b => `<span class="block text-[10px] font-semibold text-amberstatus-600 truncate">⏳ ${b.dogName}</span>`).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="space-y-5 animate-fade-in">
+                    <div class="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 shadow-xs">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="font-display font-extrabold text-lg sm:text-xl text-brown-900">Calendario de Ocupación</h3>
+                            <div class="flex items-center gap-1.5">
+                                <button onclick="changeAdminMonth(-1)" class="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-brown-800">
+                                    <i data-lucide="chevron-left" class="w-4 h-4"></i>
+                                </button>
+                                <span class="font-display font-bold text-sm min-w-[120px] text-center">${MONTH_NAMES[month]} ${year}</span>
+                                <button onclick="changeAdminMonth(1)" class="p-2 rounded-xl bg-cream-100 hover:bg-cream-200 text-brown-800">
+                                    <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-7 gap-1.5 mb-1.5 text-center">
+                            ${DAY_NAMES_SHORT.map(dn => `<div class="text-xs font-bold text-brown-600">${dn}</div>`).join('')}
+                        </div>
+                        <div class="grid grid-cols-7 gap-1.5">
+                            ${cells}
+                        </div>
+                    </div>
+
+                    ${!compact ? `
+                        <div class="bg-white rounded-3xl p-5 sm:p-6 border border-cream-300 shadow-xs">
+                            <h4 class="font-display font-extrabold text-lg text-brown-900 mb-3">Bloquear fechas manualmente (Vacaciones / Mantenimiento)</h4>
+                            <form onsubmit="handleBlockDateSubmit(event)" class="flex flex-col sm:flex-row gap-3">
+                                <input type="date" id="block-date-input" required class="px-4 py-2.5 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                <input type="text" id="block-reason-input" placeholder="Motivo (ej. Vacaciones, Mantenimiento)" class="flex-1 px-4 py-2.5 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                <button type="submit" class="bg-brown-800 hover:bg-brown-900 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition">Bloquear fecha</button>
+                            </form>
+
+                            ${state.blockedDates.length > 0 ? `
+                                <div class="mt-4 flex flex-wrap gap-2">
+                                    ${state.blockedDates.map(b => `
+                                        <span class="inline-flex items-center gap-2 bg-slate-100 border border-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-xl">
+                                            🚫 ${formatFullDate(b.date)} (${b.reason})
+                                            <button onclick="unblockDate('${b.id}')" class="text-busystatus-600 hover:underline ml-1">Quitar</button>
+                                        </span>
+                                    `).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        function renderAdminSettings() {
+            const s = state.settings;
+            return `
+                <div class="space-y-6 animate-fade-in">
+                    <form onsubmit="saveSettingsForm(event)" class="bg-white rounded-3xl p-5 sm:p-7 border border-cream-300 shadow-xs space-y-5">
+                        <div>
+                            <h3 class="font-display font-extrabold text-xl text-brown-900">Tarifas, Cupos y Datos Bancarios</h3>
+                            <p class="text-xs text-brown-600 mt-0.5">Cualquier cambio aquí actualiza automáticamente los cálculos y la página pública.</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del Hotel</label>
+                                <input type="text" id="set-hotel-name" value="${s.hotelName}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Capacidad máxima simultánea (perritos)</label>
+                                <input type="number" id="set-capacity" min="1" max="50" value="${s.maxCapacity}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Precio por noche ($)</label>
+                                <input type="number" id="set-nightly" min="0" step="100" value="${s.nightlyRate}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Precio día de adaptación ($)</label>
+                                <input type="number" id="set-adaptation" min="0" step="100" value="${s.adaptationRate}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Porcentaje de seña (%)</label>
+                                <input type="number" id="set-deposit" min="1" max="100" value="${s.depositPercentage}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">WhatsApp del Hotel (con cód. país)</label>
+                                <input type="text" id="set-whatsapp" value="${s.ownerWhatsapp}" placeholder="59170000000" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Correo electrónico para notificaciones</label>
+                                <input type="email" id="set-email" value="${s.ownerEmail || ''}" placeholder="reservas@hotelcanino.com" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">EmailJS Public Key (envío automático)</label>
+                                <input type="text" id="set-emailjs-public" value="${s.emailjsPublicKey || ''}" placeholder="Opcional" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">EmailJS Service ID</label>
+                                <input type="text" id="set-emailjs-service" value="${s.emailjsServiceId || ''}" placeholder="Opcional" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">EmailJS Template ID</label>
+                                <input type="text" id="set-emailjs-template" value="${s.emailjsTemplateId || ''}" placeholder="Opcional" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Alias bancario para señas</label>
+                                <input type="text" id="set-alias" value="${s.bankAlias}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-mono font-bold">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Titular de la cuenta</label>
+                                <input type="text" id="set-holder" value="${s.accountHolder}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-brown-700 mb-1">Contraseña de acceso Admin</label>
+                                <input type="text" id="set-pin" value="${s.adminPin}" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                            </div>
+                        </div>
+
+                        <div class="pt-2">
+                            <button type="submit" class="bg-brown-800 hover:bg-brown-900 text-white font-bold text-sm px-6 py-3 rounded-2xl shadow-sm transition">
+                                Guardar Configuración
+                            </button>
+                        </div>
+                    </form>
+
+                    <div class="bg-white rounded-3xl p-5 sm:p-7 border border-cream-300 shadow-xs space-y-4">
+                        <div>
+                            <h4 class="font-display font-extrabold text-lg text-brown-900">Fechas Especiales (Tarifa Doble 2x)</h4>
+                            <p class="text-xs text-brown-600 mt-0.5">Estas fechas multiplican x2 la tarifa por noche automáticamente (ej. Navidad 12-24/12-25 y Año Nuevo 12-31/01-01).</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            ${s.specialDates.map(d => `
+                                <span class="inline-flex items-center gap-2 bg-terracotta-500/15 text-brown-900 border border-terracotta-500/30 text-xs font-bold px-3 py-1.5 rounded-xl">
+                                    ✨ ${d}
+                                    <button type="button" onclick="removeSpecialDate('${d}')" class="text-busystatus-600 hover:underline">×</button>
+                                </span>
+                            `).join('')}
+                        </div>
+                        <div class="flex gap-2 max-w-sm">
+                            <input type="text" id="new-special-date" placeholder="MM-DD (ej. 07-09)" class="flex-1 px-3.5 py-2 rounded-xl bg-cream-50 border border-cream-300 text-xs">
+                            <button type="button" onclick="addSpecialDate()" class="bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold px-4 py-2 rounded-xl">Agregar</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderAdminView() {
+            if (!state.isAdminAuthenticated) {
+                return `
+                    <div class="min-h-screen flex items-center justify-center p-4 bg-cream-100">
+                        <div class="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-cream-300 max-w-md w-full animate-fade-in">
+                            <div class="w-14 h-14 rounded-2xl bg-brown-800 text-white flex items-center justify-center mx-auto mb-4">
+                                <i data-lucide="shield-check" class="w-7 h-7"></i>
+                            </div>
+                            <h2 class="font-display font-extrabold text-2xl text-brown-900 text-center">Panel del Propietario</h2>
+                            <p class="text-xs text-brown-600 text-center mt-1">Ingresá tus credenciales para gestionar reservas y estadías.</p>
+
+                            <form onsubmit="handleAdminLogin(event)" class="mt-6 space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-brown-700 mb-1">Correo electrónico</label>
+                                    <input type="email" id="admin-email" value="admin@hotelcanino.com" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-brown-700 mb-1">Contraseña</label>
+                                    <input type="password" id="admin-password" placeholder="••••••••••••" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                </div>
+                                <button type="submit" class="w-full bg-brown-800 hover:bg-brown-900 text-white font-bold py-3.5 rounded-2xl transition text-sm">
+                                    Iniciar Sesión
+                                </button>
+                            </form>
+
+                            <div class="mt-4 pt-4 border-t border-cream-200 flex flex-col gap-2">
+                                <button type="button" onclick="quickDemoAdminLogin()" class="w-full bg-terracotta-500/15 hover:bg-terracotta-500/25 text-terracotta-600 font-bold py-2.5 rounded-xl transition text-xs">
+                                    ⚡ Acceso rápido de propietario (Demo)
+                                </button>
+                                <button type="button" onclick="switchView('public')" class="w-full text-brown-600 hover:text-brown-900 font-semibold py-2 text-xs">
+                                    ← Volver a la página pública de reservas
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            const tabs = [
+                { id: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+                { id: 'bookings', label: 'Reservas', icon: 'clipboard-list' },
+                { id: 'dogs', label: 'Perritos alojados', icon: 'dog' },
+                { id: 'calendar', label: 'Calendario y Bloqueos', icon: 'calendar' },
+                { id: 'settings', label: 'Tarifas y Config.', icon: 'settings' }
+            ];
+
+            let tabContent = '';
+            if (state.adminTab === 'dashboard') tabContent = renderAdminDashboard();
+            else if (state.adminTab === 'bookings') tabContent = renderAdminBookings();
+            else if (state.adminTab === 'dogs') tabContent = renderAdminHostedDogs();
+            else if (state.adminTab === 'calendar') tabContent = renderAdminCalendar(false);
+            else if (state.adminTab === 'settings') tabContent = renderAdminSettings();
+
+            return `
+                <header class="bg-brown-900 text-white sticky top-0 z-30 shadow-md">
+                    <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-terracotta-500 text-white flex items-center justify-center shrink-0">
+                                <i data-lucide="paw-print" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h1 class="font-display font-extrabold text-base sm:text-lg leading-tight">Admin — ${state.settings.hotelName}</h1>
+                                <p class="text-[11px] text-cream-300">Gestión en tiempo real</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="sharePublicLink()" class="hidden sm:flex items-center gap-1.5 bg-brown-800 hover:bg-brown-700 text-cream-100 text-xs font-bold px-3 py-2 rounded-xl border border-brown-600 transition">
+                                <i data-lucide="link" class="w-3.5 h-3.5"></i>
+                                Copiar enlace clientes
+                            </button>
+                            <button onclick="switchView('public')" class="flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition">
+                                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                                Volver a vista pública
+                            </button>
+                            <button onclick="adminLogout()" class="p-2 rounded-xl bg-brown-800 hover:bg-busystatus-600 text-cream-200 hover:text-white transition" title="Cerrar sesión">
+                                <i data-lucide="log-out" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-brown-800 border-t border-brown-700">
+                        <div class="max-w-6xl mx-auto px-4 sm:px-6 flex items-center gap-1 overflow-x-auto">
+                            ${tabs.map(t => `
+                                <button onclick="setAdminTab('${t.id}')" class="flex items-center gap-2 px-4 py-3 text-xs sm:text-sm font-bold whitespace-nowrap border-b-2 transition ${state.adminTab === t.id ? 'border-terracotta-400 text-terracotta-400' : 'border-transparent text-cream-200 hover:text-white'}">
+                                    <i data-lucide="${t.icon}" class="w-4 h-4"></i>
+                                    ${t.label}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </header>
+
+                <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+                    ${tabContent}
+                </main>
+            `;
+        }
+
+        // ==========================================
+        // 11. MASTER RENDER
+        // ==========================================
+        function render() {
+            const root = document.getElementById('app');
+            if (state.view === 'admin') {
+                root.innerHTML = renderAdminView();
+            } else {
+                root.innerHTML = renderPublicView();
+            }
+            lucide.createIcons();
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initApp();
+        });
+    </script>
+</body>
+</html>
