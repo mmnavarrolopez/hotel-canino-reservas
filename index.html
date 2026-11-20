@@ -183,6 +183,76 @@
         ];
 
         // ==========================================
+        // 1B. ADMIN SESSION PERSISTENCE (7-DAY TIMEOUT)
+        // ==========================================
+        const ADMIN_SESSION_STORAGE_KEY = 'hotel_canino_admin_session_v1';
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+        function getStoredAdminSession() {
+            try {
+                const raw = localStorage.getItem(ADMIN_SESSION_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function saveAdminSession(email, remember, active = true) {
+            try {
+                localStorage.setItem(ADMIN_SESSION_STORAGE_KEY, JSON.stringify({
+                    email: email || 'admin@hotelcanino.com',
+                    remember: Boolean(remember),
+                    active: Boolean(active),
+                    lastActive: Date.now()
+                }));
+            } catch (e) {}
+        }
+
+        function evaluateInitialAdminSession() {
+            const saved = getStoredAdminSession();
+            if (!saved) {
+                return {
+                    isAuthenticated: false,
+                    savedEmail: 'admin@hotelcanino.com',
+                    rememberChecked: true,
+                    expiredNotice: false
+                };
+            }
+
+            const now = Date.now();
+            const elapsed = now - (Number(saved.lastActive) || 0);
+
+            if (saved.remember && saved.active) {
+                if (elapsed <= SEVEN_DAYS_MS) {
+                    saveAdminSession(saved.email, true, true);
+                    return {
+                        isAuthenticated: true,
+                        savedEmail: saved.email || 'admin@hotelcanino.com',
+                        rememberChecked: true,
+                        expiredNotice: false
+                    };
+                } else {
+                    saveAdminSession(saved.email, true, false);
+                    return {
+                        isAuthenticated: false,
+                        savedEmail: saved.email || 'admin@hotelcanino.com',
+                        rememberChecked: true,
+                        expiredNotice: true
+                    };
+                }
+            }
+
+            return {
+                isAuthenticated: false,
+                savedEmail: saved.email || 'admin@hotelcanino.com',
+                rememberChecked: Boolean(saved.remember),
+                expiredNotice: false
+            };
+        }
+
+        const initialAdminSession = evaluateInitialAdminSession();
+
+        // ==========================================
         // 2. APPLICATION STATE
         // ==========================================
         const today = new Date();
@@ -199,7 +269,10 @@
         const state = {
             view: getInitialViewFromLocation(),
             user: null,
-            isAdminAuthenticated: false,
+            isAdminAuthenticated: initialAdminSession.isAuthenticated,
+            savedAdminEmail: initialAdminSession.savedEmail,
+            rememberSessionChecked: initialAdminSession.rememberChecked,
+            sessionExpiredNotice: initialAdminSession.expiredNotice,
             adminTab: 'dashboard',
             bookingFilter: 'all',
             
@@ -745,6 +818,13 @@
         // ==========================================
         window.switchView = function(targetView) {
             state.view = targetView;
+            if (targetView === 'admin') {
+                const check = evaluateInitialAdminSession();
+                state.isAdminAuthenticated = check.isAuthenticated;
+                state.savedAdminEmail = check.savedEmail;
+                state.rememberSessionChecked = check.rememberChecked;
+                state.sessionExpiredNotice = check.expiredNotice;
+            }
             try {
                 if (window.location.protocol !== 'blob:') {
                     const url = new URL(window.location.href);
@@ -1100,7 +1180,7 @@
                 </div>
 
                 <div class="mt-5 space-y-2.5">
-                    <a href="${notif.waUrl}" target="_blank" rel="noopener noreferrer" class="w-full bg-sage-500 hover:bg-sage-600 text-white font-bold py-3.5 px-4 rounded-2xl shadow-md flex items-center justify-center gap-2 transition text-sm">
+                    <a href="${notif.waUrl}" target="_blank" rel="noopener,noreferrer" class="w-full bg-sage-500 hover:bg-sage-600 text-white font-bold py-3.5 px-4 rounded-2xl shadow-md flex items-center justify-center gap-2 transition text-sm">
                         <i data-lucide="message-circle" class="w-5 h-5"></i>
                         Notificar solicitud por WhatsApp
                     </a>
@@ -1587,10 +1667,43 @@
         // ==========================================
         // 9. ADMIN PANEL: AUTHENTICATION & ACTIONS
         // ==========================================
+        let lastHeartbeatMs = 0;
+        function recordAdminActivityHeartbeat() {
+            if (!state.isAdminAuthenticated) return;
+            const now = Date.now();
+            if (now - lastHeartbeatMs < 30000) return;
+            lastHeartbeatMs = now;
+            const saved = getStoredAdminSession();
+            if (saved && saved.remember && saved.active) {
+                saveAdminSession(saved.email || state.savedAdminEmail, true, true);
+            }
+        }
+
+        ['click', 'keydown', 'touchstart'].forEach(evt => {
+            window.addEventListener(evt, recordAdminActivityHeartbeat, { passive: true });
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && state.isAdminAuthenticated) {
+                const check = evaluateInitialAdminSession();
+                if (!check.isAuthenticated && getStoredAdminSession()?.remember) {
+                    state.isAdminAuthenticated = false;
+                    state.savedAdminEmail = check.savedEmail;
+                    state.sessionExpiredNotice = true;
+                    showToast("Tu sesión se cerró tras 7 días de inactividad. Ingresá tu contraseña para continuar.", "warning");
+                    render();
+                } else {
+                    recordAdminActivityHeartbeat();
+                }
+            }
+        });
+
         window.handleAdminLogin = async function(e) {
             e.preventDefault();
             const email = document.getElementById('admin-email').value.trim();
             const password = document.getElementById('admin-password').value.trim();
+            const rememberEl = document.getElementById('admin-remember');
+            const remember = rememberEl ? rememberEl.checked : true;
 
             if (!email || !password) {
                 showToast("Ingresá tu correo y contraseña.", "error");
@@ -1600,7 +1713,16 @@
             try {
                 await signInWithEmailAndPassword(auth, email, password);
                 state.isAdminAuthenticated = true;
-                showToast("¡Bienvenido al Panel de Administración!", "success");
+                state.savedAdminEmail = email;
+                state.rememberSessionChecked = remember;
+                state.sessionExpiredNotice = false;
+                saveAdminSession(email, remember, remember);
+                showToast(
+                    remember
+                        ? "¡Bienvenido! Sesión recordada por 7 días de actividad."
+                        : "¡Bienvenido al Panel de Administración!",
+                    "success"
+                );
                 render();
             } catch (err) {
                 console.error("Error de login Firebase:", err.code, err.message);
@@ -1610,6 +1732,8 @@
 
         window.adminLogout = function() {
             state.isAdminAuthenticated = false;
+            state.sessionExpiredNotice = false;
+            saveAdminSession(state.savedAdminEmail, state.rememberSessionChecked, false);
             switchView('public');
         };
 
@@ -2610,17 +2734,35 @@
                                 <i data-lucide="shield-check" class="w-7 h-7"></i>
                             </div>
                             <h2 class="font-display font-extrabold text-2xl text-brown-900 text-center">Panel del Propietario</h2>
-                            <p class="text-xs text-brown-600 text-center mt-1">Ingresá tus credenciales para gestionar reservas y estadías.</p>
+                            <p class="text-xs text-brown-600 text-center mt-1">
+                                ${state.sessionExpiredNotice 
+                                    ? 'Tu sesión se cerró tras 7 días sin uso. Ingresá solo tu contraseña para continuar.' 
+                                    : 'Ingresá tus credenciales para gestionar reservas y estadías.'}
+                            </p>
+
+                            ${state.sessionExpiredNotice ? `
+                                <div class="mt-4 bg-amberstatus-100 border border-amberstatus-500/40 text-amberstatus-600 rounded-2xl px-3.5 py-2.5 text-xs font-semibold flex items-center gap-2">
+                                    <i data-lucide="clock" class="w-4 h-4 shrink-0"></i>
+                                    <span>Sesión cerrada por inactividad (7 días). Tu correo sigue recordado.</span>
+                                </div>
+                            ` : ''}
 
                             <form onsubmit="handleAdminLogin(event)" class="mt-6 space-y-4">
                                 <div>
                                     <label class="block text-xs font-bold text-brown-700 mb-1">Correo electrónico</label>
-                                    <input type="email" id="admin-email" value="admin@hotelcanino.com" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                    <input type="email" id="admin-email" value="${state.savedAdminEmail || 'admin@hotelcanino.com'}" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-brown-700 mb-1">Contraseña</label>
-                                    <input type="password" id="admin-password" placeholder="••••••••••••" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
+                                    <input type="password" id="admin-password" ${state.sessionExpiredNotice ? 'autofocus' : ''} placeholder="••••••••••••" required class="w-full px-4 py-3 rounded-xl bg-cream-50 border border-cream-300 text-sm">
                                 </div>
+                                <label class="flex items-start gap-2.5 bg-cream-100/80 p-3 rounded-xl border border-cream-300 cursor-pointer select-none">
+                                    <input type="checkbox" id="admin-remember" ${state.rememberSessionChecked ? 'checked' : ''} class="mt-0.5 w-4 h-4 rounded accent-brown-800 cursor-pointer">
+                                    <span class="text-xs text-brown-800 leading-snug">
+                                        <strong class="block">Recordar sesión en este dispositivo</strong>
+                                        <span class="text-[11px] text-brown-600">Se mantiene abierta mientras la uses; si pasan 7 días sin actividad se cierra y solo te pedirá la contraseña.</span>
+                                    </span>
+                                </label>
                                 <button type="submit" class="w-full bg-brown-800 hover:bg-brown-900 text-white font-bold py-3.5 rounded-2xl transition text-sm">
                                     Iniciar Sesión
                                 </button>
