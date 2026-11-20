@@ -1898,12 +1898,71 @@
                 photoUrl = await compressImageToDataURL(fileInput.files[0]);
             }
 
+            const shouldBeConfirmedInDashboard = status === 'confirmada' || status === 'en_estadia';
+
             try {
                 if (!isLocalFallback) {
                     if (dogId) {
-                        await updateDoc(doc(getHostedDogsCol(), dogId), { dogName, photoUrl, checkIn, checkOut, status });
+                        const existingDog = state.hostedDogs.find(d => d.id === dogId);
+                        let linkedBookingId = existingDog?.bookingId || "";
+
+                        if (shouldBeConfirmedInDashboard) {
+                            if (linkedBookingId) {
+                                await updateDoc(doc(getBookingsCol(), linkedBookingId), {
+                                    petName: dogName,
+                                    checkIn,
+                                    checkOut,
+                                    status: 'confirmada'
+                                });
+                            } else {
+                                const newBookingRef = await addDoc(getBookingsCol(), {
+                                    ownerName: "Carga manual",
+                                    petName: dogName,
+                                    checkIn,
+                                    checkOut,
+                                    status: 'confirmada',
+                                    source: 'manual_dog',
+                                    createdAt: new Date().toISOString()
+                                });
+                                linkedBookingId = newBookingRef.id;
+                            }
+                        } else if (linkedBookingId) {
+                            await updateDoc(doc(getBookingsCol(), linkedBookingId), {
+                                status: 'cancelada'
+                            });
+                        }
+
+                        await updateDoc(doc(getHostedDogsCol(), dogId), {
+                            dogName,
+                            photoUrl,
+                            checkIn,
+                            checkOut,
+                            status,
+                            bookingId: linkedBookingId
+                        });
                     } else {
-                        await addDoc(getHostedDogsCol(), { dogName, photoUrl, checkIn, checkOut, status, bookingId: "" });
+                        let linkedBookingId = "";
+                        if (shouldBeConfirmedInDashboard) {
+                            const newBookingRef = await addDoc(getBookingsCol(), {
+                                ownerName: "Carga manual",
+                                petName: dogName,
+                                checkIn,
+                                checkOut,
+                                status: 'confirmada',
+                                source: 'manual_dog',
+                                createdAt: new Date().toISOString()
+                            });
+                            linkedBookingId = newBookingRef.id;
+                        }
+
+                        await addDoc(getHostedDogsCol(), {
+                            dogName,
+                            photoUrl,
+                            checkIn,
+                            checkOut,
+                            status,
+                            bookingId: linkedBookingId
+                        });
                     }
                 } else {
                     if (dogId) {
@@ -1914,21 +1973,32 @@
                     }
                 }
                 closeModal();
-                showToast("Perrito guardado y sincronizado con la página pública 🐶", "success");
+                showToast("Perrito guardado y sincronizado con el panel y la web pública 🐶", "success");
             } catch (err) {
+                console.error("Error al guardar perrito:", err);
                 showToast("Error al guardar perrito", "error");
             }
         };
 
         window.deleteHostedDog = async function(dogId) {
+            const dog = state.hostedDogs.find(d => d.id === dogId);
+            const confirmed = confirm(
+                `¿Estás seguro de que querés eliminar el registro de ${dog?.dogName || 'este perrito'}? Esta acción no se puede deshacer.`
+            );
+            if (!confirmed) return;
+
             try {
                 if (!isLocalFallback) {
+                    if (dog?.bookingId) {
+                        await deleteDoc(doc(getBookingsCol(), dog.bookingId));
+                    }
                     await deleteDoc(doc(getHostedDogsCol(), dogId));
                 } else {
                     state.hostedDogs = state.hostedDogs.filter(d => d.id !== dogId);
                 }
                 showToast("Registro eliminado", "info");
             } catch (err) {
+                console.error("Error al eliminar perrito:", err);
                 showToast("Error al eliminar", "error");
             }
         };
