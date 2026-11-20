@@ -398,7 +398,7 @@
 
             state.hostedDogs.forEach(dog => {
                 if (dog.status !== 'confirmada' && dog.status !== 'en_estadia') return;
-                const dogNights = getOccupiedNights(dog.checkIn, dog.checkOut, false);
+                const dogNights = getOccupiedNights(dog.checkIn, dog.checkOut, Boolean(dog.lateCheckout));
                 const overlaps = selectedNights.some(n => dogNights.includes(n));
                 if (overlaps) {
                     dogsMap.set(dog.bookingId || dog.id, {
@@ -522,6 +522,25 @@
             document.body.removeChild(textarea);
         }
 
+        window.copyToClipboard = copyToClipboard;
+
+        window.payWithMercadoPago = function(alias) {
+            const cleanAlias = (alias || state.settings.bankAlias || '').trim();
+            if (cleanAlias) {
+                copyToClipboard(cleanAlias, `¡Alias "${cleanAlias}" copiado! Pegalo en Mercado Pago para transferir 💸`);
+            }
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            const webMpUrl = 'https://www.mercadopago.com.ar/money-out/transfer/alias';
+            if (isMobile) {
+                window.location.href = 'mercadopago://money_transfer';
+                setTimeout(() => {
+                    window.open(webMpUrl, '_blank', 'noopener,noreferrer');
+                }, 900);
+            } else {
+                window.open(webMpUrl, '_blank', 'noopener,noreferrer');
+            }
+        };
+
         // ==========================================
         // 5. FIRESTORE DATA LAYER & SEEDING
         // ==========================================
@@ -578,6 +597,7 @@
                         photoUrl: DEFAULT_DOGS_PHOTOS[0],
                         checkIn: d1In,
                         checkOut: d1Out,
+                        lateCheckout: false,
                         status: "confirmada",
                         bookingId: b1.id
                     });
@@ -608,6 +628,7 @@
                         photoUrl: DEFAULT_DOGS_PHOTOS[1],
                         checkIn: d2In,
                         checkOut: d2Out,
+                        lateCheckout: false,
                         status: "confirmada",
                         bookingId: b2.id
                     });
@@ -908,6 +929,7 @@
             const whatsapp = document.getElementById('req-whatsapp').value.trim();
             const notes = document.getElementById('req-notes').value.trim();
             const accepted = document.getElementById('req-terms').checked;
+            const photoInput = document.getElementById('req-dog-photo');
 
             const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
             if (!details.rateUsed || details.rateUsed <= 0) {
@@ -939,10 +961,19 @@
             render();
 
             try {
+                let dogPhotoUrl = "";
+                if (photoInput && photoInput.files && photoInput.files[0]) {
+                    try {
+                        dogPhotoUrl = await compressImageToDataURL(photoInput.files[0]);
+                    } catch (imgErr) {
+                        console.error("Error procesando foto del perrito:", imgErr);
+                    }
+                }
+
                 const newBooking = {
                     ownerName,
                     dogName,
-                    dogPhotoUrl: "",
+                    dogPhotoUrl,
                     whatsapp,
                     checkIn: state.selectedCheckIn,
                     checkOut: state.selectedCheckOut,
@@ -986,6 +1017,7 @@
         function showBookingConfirmationModal(booking, details, notif) {
             const hasRate = details.rateUsed > 0;
             const specialExtraRate = details.specialNightExtraRate ?? details.rateUsed;
+            const safeAlias = (state.settings.bankAlias || '').replace(/'/g, "\\'");
 
             openModal(`
                 <div class="text-center">
@@ -1052,12 +1084,19 @@
                     <p class="text-xs text-cream-300 uppercase tracking-wider font-semibold">Datos para transferir la seña (${state.settings.depositPercentage}%)</p>
                     <p class="text-xs text-cream-200 mt-0.5">Titular: ${state.settings.accountHolder}</p>
                     <div class="mt-2.5 flex items-center justify-between gap-2 bg-brown-900/70 px-3.5 py-2.5 rounded-xl border border-brown-600">
-                        <span class="font-mono font-bold text-base tracking-wide text-terracotta-400 select-all">${state.settings.bankAlias}</span>
-                        <button onclick="copyToClipboard('${state.settings.bankAlias}', '¡Alias copiado!')" class="flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
+                        <button type="button" onclick="payWithMercadoPago('${safeAlias}')" title="Clic para copiar el alias e ir directo a Mercado Pago" class="font-mono font-bold text-base tracking-wide text-terracotta-400 hover:text-terracotta-300 underline decoration-dotted underline-offset-4 text-left flex items-center gap-1.5 transition cursor-pointer">
+                            <span>${state.settings.bankAlias}</span>
+                            <i data-lucide="external-link" class="w-4 h-4 shrink-0"></i>
+                        </button>
+                        <button type="button" onclick="copyToClipboard('${safeAlias}', '¡Alias copiado!')" class="flex items-center gap-1.5 bg-terracotta-500 hover:bg-terracotta-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
                             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
                             Copiar alias
                         </button>
                     </div>
+                    <button type="button" onclick="payWithMercadoPago('${safeAlias}')" class="mt-2.5 w-full bg-[#009EE3] hover:bg-[#0086C3] text-white font-bold text-xs py-2.5 px-3.5 rounded-xl flex items-center justify-center gap-2 transition shadow-xs">
+                        <i data-lucide="wallet" class="w-4 h-4"></i>
+                        Ir a pagar con Mercado Pago (copia el alias)
+                    </button>
                 </div>
 
                 <div class="mt-5 space-y-2.5">
@@ -1438,6 +1477,11 @@
                         </div>
                     </div>
 
+                    <div>
+                        <label class="block text-xs font-bold text-brown-800 mb-1">Foto de tu perrito <span class="text-brown-600 font-normal">(opcional — se mostrará a otros clientes cuando tu reserva se confirme)</span></label>
+                        <input type="file" id="req-dog-photo" accept="image/*" class="w-full text-xs text-brown-700 bg-cream-50 p-2 rounded-xl border border-cream-300 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:bg-brown-700 file:text-white file:font-bold cursor-pointer">
+                    </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-xs font-bold text-brown-800 mb-1">WhatsApp de contacto <span class="text-brown-600 font-normal">(opcional)</span></label>
@@ -1606,13 +1650,17 @@
                     await updateDoc(doc(getBookingsCol(), bookingId), { status: newStatus });
                     const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
                     if (linkedDog) {
-                        await updateDoc(doc(getHostedDogsCol(), linkedDog.id), { status: newStatus });
+                        await updateDoc(doc(getHostedDogsCol(), linkedDog.id), {
+                            status: newStatus,
+                            lateCheckout: Boolean(booking.lateCheckout)
+                        });
                     } else if (newStatus === 'confirmada' || newStatus === 'en_estadia') {
                         await addDoc(getHostedDogsCol(), {
                             dogName: booking.dogName,
                             photoUrl: booking.dogPhotoUrl || DEFAULT_DOGS_PHOTOS[Math.abs(booking.dogName.length) % DEFAULT_DOGS_PHOTOS.length],
                             checkIn: booking.checkIn,
                             checkOut: booking.checkOut,
+                            lateCheckout: Boolean(booking.lateCheckout),
                             status: newStatus,
                             bookingId: booking.id
                         });
@@ -1729,7 +1777,7 @@
                 photoUrl = await compressImageToDataURL(fileInput.files[0]);
             }
 
-            const details = calculateStayDetails(checkIn, checkOut, lateCheckout);
+            const details = calculateStayDetails(checkIn, checkOut, lateCheckout, b.nightlyRateApplied || null);
             const updates = {
                 dogName,
                 ownerName,
@@ -1753,6 +1801,7 @@
                             dogName,
                             checkIn,
                             checkOut,
+                            lateCheckout,
                             ...(photoUrl ? { photoUrl } : {})
                         });
                     }
@@ -1806,6 +1855,8 @@
                 || dog?.nightlyRateApplied
                 || Number(state.settings?.nightlyRate || 0);
 
+            const isLateCheckout = Boolean(dog?.lateCheckout ?? linkedBooking?.lateCheckout);
+
             openModal(`
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-display font-extrabold text-xl text-brown-900">
@@ -1841,6 +1892,13 @@
                             <input type="date" id="dog-form-out" value="${dog ? dog.checkOut : addDays(getTodayStr(), 3)}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
                         </div>
                     </div>
+                    <div class="flex items-start gap-2.5 bg-cream-100 p-3 rounded-xl border border-cream-300">
+                        <input type="checkbox" id="dog-form-late" ${isLateCheckout ? 'checked' : ''} class="mt-0.5 w-4 h-4 rounded accent-brown-700 cursor-pointer">
+                        <label for="dog-form-late" class="text-xs font-semibold text-brown-800 cursor-pointer leading-snug">
+                            Salida después de las 13:00 hs (+1 noche adicional)
+                            <span class="block text-[11px] font-normal text-brown-600 mt-0.5">Suma automáticamente una noche más al total de la estadía.</span>
+                        </label>
+                    </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs font-bold text-brown-700 mb-1">Costo por noche ($) *</label>
@@ -1869,6 +1927,7 @@
             const ownerName = document.getElementById('dog-form-owner').value.trim() || "Carga manual";
             const checkIn = document.getElementById('dog-form-in').value;
             const checkOut = document.getElementById('dog-form-out').value;
+            const lateCheckout = document.getElementById('dog-form-late').checked;
             const customRate = Math.max(0, Number(document.getElementById('dog-form-rate').value || 0));
             const status = document.getElementById('dog-form-status').value;
             const fileInput = document.getElementById('dog-form-file');
@@ -1878,7 +1937,7 @@
                 return;
             }
 
-            const details = calculateStayDetails(checkIn, checkOut, false, customRate > 0 ? customRate : null);
+            const details = calculateStayDetails(checkIn, checkOut, lateCheckout, customRate > 0 ? customRate : null);
 
             let photoUrl = dogId ? state.hostedDogs.find(d => d.id === dogId)?.photoUrl : DEFAULT_DOGS_PHOTOS[0];
             if (fileInput.files && fileInput.files[0]) {
@@ -1894,7 +1953,7 @@
                 whatsapp: "",
                 checkIn,
                 checkOut,
-                lateCheckout: false,
+                lateCheckout,
                 notes: "Reserva cargada manualmente desde el panel.",
                 privateNotes: "",
                 nightlyRateApplied: details.rateUsed,
@@ -1916,6 +1975,7 @@
                 photoUrl,
                 checkIn,
                 checkOut,
+                lateCheckout,
                 status
             };
 
@@ -2260,9 +2320,12 @@
                                     <div class="bg-white rounded-3xl p-5 border border-cream-300 shadow-xs flex flex-col justify-between space-y-4">
                                         <div>
                                             <div class="flex items-start justify-between gap-2">
-                                                <div>
-                                                    <h4 class="font-display font-extrabold text-lg text-brown-900">🐶 ${b.dogName || 'Sin nombre'}</h4>
-                                                    <p class="text-xs text-brown-600">Tutor: <strong>${b.ownerName || 'Sin tutor'}</strong></p>
+                                                <div class="flex items-center gap-3">
+                                                    ${b.dogPhotoUrl ? `<img src="${b.dogPhotoUrl}" alt="${b.dogName}" class="w-12 h-12 rounded-2xl object-cover bg-cream-200 shrink-0">` : ''}
+                                                    <div>
+                                                        <h4 class="font-display font-extrabold text-lg text-brown-900">🐶 ${b.dogName || 'Sin nombre'}</h4>
+                                                        <p class="text-xs text-brown-600">Tutor: <strong>${b.ownerName || 'Sin tutor'}</strong></p>
+                                                    </div>
                                                 </div>
                                                 ${getStatusBadge(b.status)}
                                             </div>
@@ -2356,6 +2419,7 @@
                                             <h4 class="font-display font-extrabold text-base text-brown-900 truncate">${dog.dogName}</h4>
                                         </div>
                                         <p class="text-xs text-brown-600 mt-0.5">${formatFullDate(dog.checkIn)} → ${formatFullDate(dog.checkOut)}</p>
+                                        ${dog.lateCheckout ? `<span class="inline-block text-[10px] font-bold text-terracotta-600 mt-0.5">• Salida post 13:00 hs (+1 noche)</span>` : ''}
                                         <div class="mt-1.5">${getStatusBadge(dog.status)}</div>
                                         <div class="mt-2.5 flex items-center gap-2">
                                             <button onclick="openDogFormModal('${dog.id}')" class="text-xs font-bold text-brown-700 hover:underline">Editar</button>
