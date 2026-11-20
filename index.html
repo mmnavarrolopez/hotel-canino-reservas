@@ -1808,10 +1808,18 @@
         };
 
         window.deleteBookingRecord = async function(bookingId) {
+            const booking = state.bookings.find(b => b.id === bookingId);
+            const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
+            const targetName = linkedDog?.petName || booking?.petName || "esta reserva";
+
+            const confirmed = confirm(
+                `¿Estás seguro de que querés eliminar la reserva de ${targetName}? Esta acción no se puede deshacer.`
+            );
+            if (!confirmed) return;
+
             try {
                 if (!isLocalFallback) {
                     await deleteDoc(doc(getBookingsCol(), bookingId));
-                    const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
                     if (linkedDog) {
                         await deleteDoc(doc(getHostedDogsCol(), linkedDog.id));
                     }
@@ -1820,6 +1828,7 @@
                 }
                 showToast("Reserva eliminada", "info");
             } catch (err) {
+                console.error("Error al eliminar reserva:", err);
                 showToast("Error al eliminar", "error");
             }
         };
