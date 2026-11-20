@@ -1586,7 +1586,7 @@
         // ==========================================
         // 9. ADMIN PANEL: AUTHENTICATION & ACTIONS
         // ==========================================
-       window.handleAdminLogin = async function(e) {
+        window.handleAdminLogin = async function(e) {
             e.preventDefault();
             const email = document.getElementById('admin-email').value.trim();
             const password = document.getElementById('admin-password').value.trim();
@@ -1662,6 +1662,7 @@
                     }
                 } else {
                     booking.status = newStatus;
+                    render();
                 }
                 showToast("Estado de reserva actualizado", "success");
             } catch (err) {
@@ -1679,6 +1680,7 @@
                     await updateDoc(doc(getBookingsCol(), bookingId), { [field]: newVal });
                 } else {
                     booking[field] = newVal;
+                    render();
                 }
                 showToast(field === 'depositPaid' ? (newVal ? "Seña marcada como recibida" : "Seña marcada como pendiente") : (newVal ? "Saldo total marcado como pagado" : "Saldo marcado como pendiente"), "success");
             } catch (err) {
@@ -1799,6 +1801,7 @@
                     }
                 } else {
                     Object.assign(b, updates);
+                    render();
                 }
                 closeModal();
                 showToast("Reserva actualizada correctamente", "success");
@@ -1810,7 +1813,7 @@
         window.deleteBookingRecord = async function(bookingId) {
             const booking = state.bookings.find(b => b.id === bookingId);
             const linkedDog = state.hostedDogs.find(d => d.bookingId === bookingId);
-            const targetName = linkedDog?.petName || booking?.petName || "esta reserva";
+            const targetName = booking?.dogName || linkedDog?.dogName || "esta reserva";
 
             const confirmed = confirm(
                 `¿Estás seguro de que querés eliminar la reserva de ${targetName}? Esta acción no se puede deshacer.`
@@ -1825,6 +1828,7 @@
                     }
                 } else {
                     state.bookings = state.bookings.filter(b => b.id !== bookingId);
+                    render();
                 }
                 showToast("Reserva eliminada", "info");
             } catch (err) {
@@ -1835,6 +1839,16 @@
 
         window.openDogFormModal = function(dogId = null) {
             const dog = dogId ? state.hostedDogs.find(d => d.id === dogId) : null;
+            const linkedBooking = dog?.bookingId ? state.bookings.find(b => b.id === dog.bookingId) : null;
+
+            const defaultOwner = linkedBooking?.ownerName && linkedBooking.ownerName !== "Carga manual"
+                ? linkedBooking.ownerName
+                : (dog?.ownerName || "");
+
+            const defaultRate = linkedBooking?.nightlyRateApplied
+                || dog?.nightlyRateApplied
+                || Number(state.settings?.nightlyRate || 0);
+
             openModal(`
                 <div class="flex items-center justify-between mb-4">
                     <h3 class="font-display font-extrabold text-xl text-brown-900">
@@ -1845,9 +1859,15 @@
                     </button>
                 </div>
                 <form onsubmit="saveHostedDog(event, '${dog ? dog.id : ''}')" class="space-y-4 text-sm">
-                    <div>
-                        <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del perrito *</label>
-                        <input type="text" id="dog-form-name" value="${dog ? dog.dogName : ''}" required placeholder="Ej. Simba" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del perrito *</label>
+                            <input type="text" id="dog-form-name" value="${dog ? dog.dogName : ''}" required placeholder="Ej. Simba" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Nombre del tutor *</label>
+                            <input type="text" id="dog-form-owner" value="${defaultOwner}" required placeholder="Ej. María" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-brown-700 mb-1">Fotografía del perrito *</label>
@@ -1864,13 +1884,19 @@
                             <input type="date" id="dog-form-out" value="${dog ? dog.checkOut : addDays(getTodayStr(), 3)}" required class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
                         </div>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-brown-700 mb-1">Estado de la reserva</label>
-                        <select id="dog-form-status" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-semibold">
-                            <option value="confirmada" ${dog?.status === 'confirmada' ? 'selected' : ''}>Confirmada (Visible en web pública)</option>
-                            <option value="en_estadia" ${dog?.status === 'en_estadia' ? 'selected' : ''}>En estadía (Visible en web pública)</option>
-                            <option value="finalizada" ${dog?.status === 'finalizada' ? 'selected' : ''}>Finalizada</option>
-                        </select>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Costo por noche ($) *</label>
+                            <input type="number" id="dog-form-rate" value="${defaultRate}" min="0" step="any" required placeholder="Ej. 42500" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-brown-700 mb-1">Estado de la reserva</label>
+                            <select id="dog-form-status" class="w-full px-3.5 py-2.5 rounded-xl bg-cream-50 border border-cream-300 font-semibold">
+                                <option value="confirmada" ${dog?.status === 'confirmada' ? 'selected' : ''}>Confirmada (Visible en web pública)</option>
+                                <option value="en_estadia" ${dog?.status === 'en_estadia' ? 'selected' : ''}>En estadía (Visible en web pública)</option>
+                                <option value="finalizada" ${dog?.status === 'finalizada' ? 'selected' : ''}>Finalizada</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="flex justify-end gap-2 pt-2">
                         <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl bg-cream-200 font-bold text-brown-800">Cancelar</button>
@@ -1883,8 +1909,10 @@
         window.saveHostedDog = async function(e, dogId) {
             e.preventDefault();
             const dogName = document.getElementById('dog-form-name').value.trim();
+            const ownerName = document.getElementById('dog-form-owner').value.trim() || "Carga manual";
             const checkIn = document.getElementById('dog-form-in').value;
             const checkOut = document.getElementById('dog-form-out').value;
+            const customRate = Math.max(0, Number(document.getElementById('dog-form-rate').value || 0));
             const status = document.getElementById('dog-form-status').value;
             const fileInput = document.getElementById('dog-form-file');
 
@@ -1893,12 +1921,46 @@
                 return;
             }
 
+            const details = calculateStayDetails(checkIn, checkOut, false, customRate > 0 ? customRate : null);
+
             let photoUrl = dogId ? state.hostedDogs.find(d => d.id === dogId)?.photoUrl : DEFAULT_DOGS_PHOTOS[0];
             if (fileInput.files && fileInput.files[0]) {
                 photoUrl = await compressImageToDataURL(fileInput.files[0]);
             }
 
             const shouldBeConfirmedInDashboard = status === 'confirmada' || status === 'en_estadia';
+
+            const bookingPayload = {
+                dogName,
+                ownerName,
+                dogPhotoUrl: photoUrl,
+                whatsapp: "",
+                checkIn,
+                checkOut,
+                lateCheckout: false,
+                notes: "Reserva cargada manualmente desde el panel.",
+                privateNotes: "",
+                nightlyRateApplied: details.rateUsed,
+                nightsCount: details.totalNights,
+                specialNightsCount: details.specialNightsCount,
+                totalAmount: details.totalAmount,
+                depositAmount: details.depositAmount,
+                depositPaid: false,
+                balancePaid: false,
+                status: 'confirmada',
+                source: 'manual_dog',
+                createdAt: new Date().toISOString()
+            };
+
+            const dogPayload = {
+                dogName,
+                ownerName,
+                nightlyRateApplied: details.rateUsed,
+                photoUrl,
+                checkIn,
+                checkOut,
+                status
+            };
 
             try {
                 if (!isLocalFallback) {
@@ -1908,22 +1970,9 @@
 
                         if (shouldBeConfirmedInDashboard) {
                             if (linkedBookingId) {
-                                await updateDoc(doc(getBookingsCol(), linkedBookingId), {
-                                    petName: dogName,
-                                    checkIn,
-                                    checkOut,
-                                    status: 'confirmada'
-                                });
+                                await updateDoc(doc(getBookingsCol(), linkedBookingId), bookingPayload);
                             } else {
-                                const newBookingRef = await addDoc(getBookingsCol(), {
-                                    ownerName: "Carga manual",
-                                    petName: dogName,
-                                    checkIn,
-                                    checkOut,
-                                    status: 'confirmada',
-                                    source: 'manual_dog',
-                                    createdAt: new Date().toISOString()
-                                });
+                                const newBookingRef = await addDoc(getBookingsCol(), bookingPayload);
                                 linkedBookingId = newBookingRef.id;
                             }
                         } else if (linkedBookingId) {
@@ -1933,44 +1982,32 @@
                         }
 
                         await updateDoc(doc(getHostedDogsCol(), dogId), {
-                            dogName,
-                            photoUrl,
-                            checkIn,
-                            checkOut,
-                            status,
+                            ...dogPayload,
                             bookingId: linkedBookingId
                         });
                     } else {
                         let linkedBookingId = "";
                         if (shouldBeConfirmedInDashboard) {
-                            const newBookingRef = await addDoc(getBookingsCol(), {
-                                ownerName: "Carga manual",
-                                petName: dogName,
-                                checkIn,
-                                checkOut,
-                                status: 'confirmada',
-                                source: 'manual_dog',
-                                createdAt: new Date().toISOString()
-                            });
+                            const newBookingRef = await addDoc(getBookingsCol(), bookingPayload);
                             linkedBookingId = newBookingRef.id;
                         }
 
                         await addDoc(getHostedDogsCol(), {
-                            dogName,
-                            photoUrl,
-                            checkIn,
-                            checkOut,
-                            status,
+                            ...dogPayload,
                             bookingId: linkedBookingId
                         });
                     }
                 } else {
                     if (dogId) {
                         const d = state.hostedDogs.find(x => x.id === dogId);
-                        Object.assign(d, { dogName, photoUrl, checkIn, checkOut, status });
+                        Object.assign(d, dogPayload);
                     } else {
-                        state.hostedDogs.push({ id: 'dog-' + Date.now(), dogName, photoUrl, checkIn, checkOut, status });
+                        state.hostedDogs.push({ id: 'dog-' + Date.now(), ...dogPayload });
+                        if (shouldBeConfirmedInDashboard) {
+                            state.bookings.unshift({ id: 'b-local-' + Date.now(), ...bookingPayload });
+                        }
                     }
+                    render();
                 }
                 closeModal();
                 showToast("Perrito guardado y sincronizado con el panel y la web pública 🐶", "success");
@@ -1995,6 +2032,7 @@
                     await deleteDoc(doc(getHostedDogsCol(), dogId));
                 } else {
                     state.hostedDogs = state.hostedDogs.filter(d => d.id !== dogId);
+                    render();
                 }
                 showToast("Registro eliminado", "info");
             } catch (err) {
@@ -2020,6 +2058,7 @@
                     await addDoc(getBlockedDatesCol(), { date, reason });
                 } else {
                     state.blockedDates.push({ id: 'blk-' + Date.now(), date, reason });
+                    render();
                 }
                 showToast(`Fecha ${formatFullDate(date)} bloqueada`, "success");
             } catch (err) {
@@ -2033,6 +2072,7 @@
                     await deleteDoc(doc(getBlockedDatesCol(), blockId));
                 } else {
                     state.blockedDates = state.blockedDates.filter(b => b.id !== blockId);
+                    render();
                 }
                 showToast("Fecha desbloqueada", "success");
             } catch (err) {
@@ -2064,6 +2104,7 @@
                     await setDoc(getSettingsRef(), updatedSettings);
                 } else {
                     state.settings = updatedSettings;
+                    render();
                 }
                 showToast("Configuración y tarifas actualizadas en tiempo real", "success");
             } catch (err) {
@@ -2088,6 +2129,7 @@
                     await updateDoc(getSettingsRef(), { specialDates: nextList });
                 } else {
                     state.settings.specialDates = nextList;
+                    render();
                 }
                 document.getElementById('new-special-date').value = '';
                 showToast("Fecha especial agregada", "success");
@@ -2103,6 +2145,7 @@
                     await updateDoc(getSettingsRef(), { specialDates: nextList });
                 } else {
                     state.settings.specialDates = nextList;
+                    render();
                 }
                 showToast("Fecha especial quitada", "info");
             } catch (err) {
@@ -2195,12 +2238,12 @@
                                     <div class="bg-cream-50 p-4 rounded-2xl border border-cream-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                         <div>
                                             <div class="flex items-center gap-2 flex-wrap">
-                                                <span class="font-display font-extrabold text-base text-brown-900">🐶 ${b.dogName}</span>
-                                                <span class="text-xs text-brown-600">• Tutor: <strong>${b.ownerName}</strong></span>
+                                                <span class="font-display font-extrabold text-base text-brown-900">🐶 ${b.dogName || 'Sin nombre'}</span>
+                                                <span class="text-xs text-brown-600">• Tutor: <strong>${b.ownerName || 'Sin tutor'}</strong></span>
                                                 ${getStatusBadge(b.status)}
                                             </div>
                                             <p class="text-xs text-brown-700 mt-1">
-                                                Del <strong>${formatFullDate(b.checkIn)}</strong> al <strong>${formatFullDate(b.checkOut)}</strong> (${b.nightsCount} noches)
+                                                Del <strong>${formatFullDate(b.checkIn)}</strong> al <strong>${formatFullDate(b.checkOut)}</strong> (${b.nightsCount ?? 0} noches)
                                             </p>
                                         </div>
                                         <div class="flex items-center gap-2 shrink-0">
@@ -2255,13 +2298,17 @@
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             ${filtered.map(b => {
                                 const cleanWa = (b.whatsapp || '').replace(/\D/g, '');
+                                const nightsVal = b.nightsCount ?? 0;
+                                const specialNightsVal = b.specialNightsCount ?? 0;
+                                const totalVal = b.totalAmount ?? 0;
+                                const depositVal = b.depositAmount ?? 0;
                                 return `
                                     <div class="bg-white rounded-3xl p-5 border border-cream-300 shadow-xs flex flex-col justify-between space-y-4">
                                         <div>
                                             <div class="flex items-start justify-between gap-2">
                                                 <div>
-                                                    <h4 class="font-display font-extrabold text-lg text-brown-900">🐶 ${b.dogName}</h4>
-                                                    <p class="text-xs text-brown-600">Tutor: <strong>${b.ownerName}</strong></p>
+                                                    <h4 class="font-display font-extrabold text-lg text-brown-900">🐶 ${b.dogName || 'Sin nombre'}</h4>
+                                                    <p class="text-xs text-brown-600">Tutor: <strong>${b.ownerName || 'Sin tutor'}</strong></p>
                                                 </div>
                                                 ${getStatusBadge(b.status)}
                                             </div>
@@ -2269,12 +2316,13 @@
                                             <div class="mt-3 bg-cream-100 rounded-2xl p-3 text-xs space-y-1.5 border border-cream-300">
                                                 <div class="flex justify-between">
                                                     <span class="text-brown-600">Fechas:</span>
-                                                    <span class="font-bold text-brown-900">${formatFullDate(b.checkIn)} → ${formatFullDate(b.checkOut)} (${b.nightsCount} noches)</span>
+                                                    <span class="font-bold text-brown-900">${formatFullDate(b.checkIn)} → ${formatFullDate(b.checkOut)} (${nightsVal} ${nightsVal === 1 ? 'noche' : 'noches'})</span>
                                                 </div>
+                                                ${specialNightsVal > 0 ? `<div class="text-terracotta-600 font-semibold">• Incluye ${specialNightsVal} ${specialNightsVal === 1 ? 'noche especial' : 'noches especiales'} (2x)</div>` : ''}
                                                 ${b.lateCheckout ? `<div class="text-terracotta-600 font-semibold">• Retiro después de las 13:00 hs (+1 noche incluida)</div>` : ''}
                                                 <div class="flex justify-between">
                                                     <span class="text-brown-600">Total / Seña (${state.settings.depositPercentage}%):</span>
-                                                    <span class="font-bold text-brown-900">${formatCurrency(b.totalAmount)} / <span class="text-terracotta-600">${formatCurrency(b.depositAmount)}</span></span>
+                                                    <span class="font-bold text-brown-900">${formatCurrency(totalVal)} / <span class="text-terracotta-600">${formatCurrency(depositVal)}</span></span>
                                                 </div>
                                             </div>
 
