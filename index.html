@@ -893,48 +893,8 @@
             const cleanOwnerPhone = (state.settings.ownerWhatsapp || '').replace(/\D/g, '');
             const waUrl = `https://wa.me/${cleanOwnerPhone}?text=${encodeURIComponent(rawMessage)}`;
             const plainTextMessage = rawMessage.replace(/\*/g, '');
-            const mailSubject = encodeURIComponent(`Nueva solicitud de reserva: ${booking.dogName} (${formatFullDate(booking.checkIn)})`);
-            const mailBody = encodeURIComponent(plainTextMessage);
-            const mailtoUrl = `mailto:${state.settings.ownerEmail || ''}?subject=${mailSubject}&body=${mailBody}`;
 
-            return { waUrl, mailtoUrl, plainTextMessage, hasRate };
-        }
-
-        async function sendBackgroundEmailIfConfigured(booking, details, plainTextMessage) {
-            const { emailjsPublicKey, emailjsServiceId, emailjsTemplateId, ownerEmail } = state.settings;
-            if (!emailjsPublicKey || !emailjsServiceId || !emailjsTemplateId || !ownerEmail) {
-                return false;
-            }
-            try {
-                const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        lib_version: '4.4.1',
-                        user_id: emailjsPublicKey,
-                        service_id: emailjsServiceId,
-                        template_id: emailjsTemplateId,
-                        template_params: {
-                            to_email: ownerEmail,
-                            dog_name: booking.dogName,
-                            owner_name: booking.ownerName,
-                            client_whatsapp: booking.whatsapp || 'No informado',
-                            check_in: formatFullDate(booking.checkIn),
-                            check_out: formatFullDate(booking.checkOut),
-                            nights_count: details.totalNights,
-                            special_nights_count: details.specialNightsCount ?? 0,
-                            total_amount: formatCurrency(details.totalAmount),
-                            deposit_amount: formatCurrency(details.depositAmount),
-                            notes: booking.notes || 'Sin observaciones',
-                            message: plainTextMessage
-                        }
-                    })
-                });
-                return res.ok;
-            } catch (err) {
-                console.error("Error enviando correo con EmailJS:", err);
-                return false;
-            }
+            return { waUrl, plainTextMessage, hasRate };
         }
 
         window.submitBookingRequest = async function(e) {
@@ -951,6 +911,17 @@
             const whatsapp = document.getElementById('req-whatsapp').value.trim();
             const notes = document.getElementById('req-notes').value.trim();
             const accepted = document.getElementById('req-terms').checked;
+
+            const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
+            if (!details.rateUsed || details.rateUsed <= 0) {
+                showToast("Ingresá el precio por noche acordado por WhatsApp antes de solicitar la reserva.", "warning");
+                const rateInput = document.getElementById('client-custom-rate');
+                if (rateInput) {
+                    rateInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    rateInput.focus();
+                }
+                return;
+            }
 
             if (!ownerName || !dogName) {
                 showToast("Completá tu nombre y el nombre de tu perrito.", "warning");
@@ -971,7 +942,6 @@
             render();
 
             try {
-                const details = calculateStayDetails(state.selectedCheckIn, state.selectedCheckOut, state.lateCheckout, state.clientCustomRate);
                 const newBooking = {
                     ownerName,
                     dogName,
@@ -1000,17 +970,12 @@
                 }
 
                 const notif = buildOwnerNotificationPayload(newBooking, details);
-                const emailSent = await sendBackgroundEmailIfConfigured(newBooking, details, notif.plainTextMessage);
 
                 if (state.settings.ownerWhatsapp) {
                     window.open(notif.waUrl, '_blank', 'noopener,noreferrer');
                 }
 
-                if (emailSent) {
-                    showToast("¡Notificación enviada a tu correo electrónico!", "success");
-                }
-
-                showBookingConfirmationModal(newBooking, details, notif, emailSent);
+                showBookingConfirmationModal(newBooking, details, notif);
                 state.clientCustomRate = '';
             } catch (err) {
                 console.error("Error creating booking:", err);
@@ -1021,7 +986,7 @@
             }
         };
 
-        function showBookingConfirmationModal(booking, details, notif, emailSent = false) {
+        function showBookingConfirmationModal(booking, details, notif) {
             const hasRate = details.rateUsed > 0;
             const specialExtraRate = details.specialNightExtraRate ?? details.rateUsed;
 
@@ -1103,12 +1068,6 @@
                         <i data-lucide="message-circle" class="w-5 h-5"></i>
                         Notificar solicitud por WhatsApp
                     </a>
-                    ${state.settings.ownerEmail ? `
-                        <a href="${notif.mailtoUrl}" class="w-full bg-brown-700 hover:bg-brown-800 text-white font-bold py-3 px-4 rounded-2xl flex items-center justify-center gap-2 transition text-xs sm:text-sm">
-                            <i data-lucide="mail" class="w-4 h-4"></i>
-                            ${emailSent ? 'Correo enviado (abrir copia en mi app)' : 'Enviar notificación por Correo Electrónico'}
-                        </a>
-                    ` : ''}
                     <button onclick="closeModal()" class="w-full bg-cream-200 hover:bg-cream-300 text-brown-800 font-bold py-3 px-5 rounded-2xl transition text-xs sm:text-sm">
                         Cerrar resumen
                     </button>
@@ -1425,15 +1384,16 @@
 
                     <div class="mt-4 bg-brown-900/60 p-4 rounded-2xl border border-brown-600/60">
                         <label for="client-custom-rate" class="block text-xs font-bold text-cream-200 mb-1.5">
-                            💰 Precio por noche acordado por WhatsApp ($)
+                            💰 Precio por noche acordado por WhatsApp ($) *
                         </label>
                         <div class="relative">
                             <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-brown-700 font-extrabold text-sm">$</span>
                             <input 
                                 type="number" 
                                 id="client-custom-rate" 
-                                min="0" 
+                                min="1" 
                                 step="any"
+                                required
                                 value="${inputVal}"
                                 oninput="updateClientCustomRate(this.value)"
                                 placeholder="Ingresá el valor por noche que te pasamos por WhatsApp"
